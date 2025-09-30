@@ -1,0 +1,155 @@
+2025-09-29 18:24:36,993 - INFO - 🏗️  Creating virtual environment at datascience_env
+2025-09-29 18:24:38,452 - INFO - ✅ Virtual environment created successfully
+2025-09-29 18:24:38,452 - INFO - 🚀 Starting comprehensive package installation...
+2025-09-29 18:24:38,452 - INFO - 📦 Total packages to install: 17
+2025-09-29 18:24:38,453 - INFO - 🔄 Upgrading pip...
+2025-09-29 18:24:39,573 - INFO - ✓ Successfully upgraded pip
+2025-09-29 18:24:39,574 - INFO - 
+--- Installing numpy ---
+2025-09-29 18:24:39,614 - INFO - ✓ numpy already installed, skipping
+2025-09-29 18:24:40,119 - INFO - 
+--- Installing pandas ---
+2025-09-29 18:24:40,362 - INFO - NumExpr defaulting to 16 threads.
+2025-09-29 18:24:40,543 - INFO - ✓ pandas already installed, skipping
+2025-09-29 18:24:41,046 - INFO - 
+--- Installing scipy ---
+2025-09-29 18:24:41,068 - INFO - ✓ scipy already installed, skipping
+2025-09-29 18:24:41,571 - INFO - 
+--- Installing gurobipy ---
+2025-09-29 18:24:41,949 - INFO - ✓ gurobipy already installed, skipping
+2025-09-29 18:24:42,453 - INFO - 
+--- Installing cvxpy ---
+2025-09-29 18:24:42,735 - INFO - 🔄 Installing cvxpy via conda...
+2025-09-29 18:24:44,198 - WARNING - ⚠️  Conda install failed for cvxpy: 
+CondaToSNonInteractiveError: Terms of Service have not been accepted for the following channels. Please accept or remove them before proceeding:
+    • https://repo.anaconda.com/pkgs/main
+    • https://repo.anaconda.com/pkgs/r
+
+To accept a channel's Terms of Service, run the following and replace `CHANNEL` with the channel name/URL:
+    ‣ conda tos accept --override-channels --channel CHANNEL
+
+To remove channels with rejected Terms of Service, run the following and replace `CHANNEL` with the channel name/URL:
+    ‣ conda config --remove channels CHANNEL
+
+
+2025-09-29 18:24:44,198 - INFO - 🔄 Installing cvxpy via pip...
+2025-09-29 18:24:49,746 - INFO - ✓ Successfully installed cvxpy
+2025-09-29 18:24:50,251 - INFO - 
+--- Installing pulp ---
+2025-09-29 18:24:50,555 - INFO - 🔄 Installing pulp via conda...
+2025-09-29 18:24:50,864 - WARNING - ⚠️  Conda install failed for pulp: 
+CondaToSNonInteractiveError: Terms of Service have not been accepted for the following channels. Please accept or remove them before proceeding:
+    • https://repo.anaconda.com/pkgs/main
+    • https://repo.anaconda.com/pkgs/r
+
+To accept a channel's Terms of Service, run the following and replace `CHANNEL` with the channel name/URL:
+    ‣ conda tos accept --override-channels --channel CHANNEL
+
+To remove channels with rejected Terms of Service, run the following and replace `CHANNEL` with the channel name/URL:
+    ‣ conda config --remove channels CHANNEL
+
+
+2025-09-29 18:24:50,864 - INFO - 🔄 Installing pulp via pip...
+2025-09-29 18:24:51,242 - INFO - ✓ Successfully installed pulp
+2025-09-29 18:24:51,747 - INFO - 
+--- Installing pyomo ---
+2025-09-29 18:24:52,047 - INFO - 🔄 Installing pyomo via conda...
+2025-09-29 18:24:52,370 - WARNING - ⚠️  Conda install failed for pyomo: 
+CondaToSNonInteractiveError: Terms of Service have not been accepted for the following channels. Please accept or remove them before proceeding:
+    • https://repo.anaconda.com/pkgs/main
+    • https://repo.anaconda.com/pkgs/r
+
+To accept a channel's Terms of Service, run the following and replace `CHANNEL` with the channel name/URL:
+    ‣ conda tos accept --override-channels --channel CHANNEL
+
+To remove channels with rejected Terms of Service, run the following and replace `CHANNEL` with the channel name/URL:
+    ‣ conda config --remove channels CHANNEL
+
+
+2025-09-29 18:24:52,371 - INFO - 🔄 Installing pyomo via pip...
+2025-09-29 18:24:54,918 - INFO - ✓ Successfully installed pyomo
+2025-09-29 18:24:55,424 - INFO - 
+--- Installing matplotlib ---
+2025-09-29 18:24:55,594 - INFO - ✓ matplotlib already installed, skipping
+2025-09-29 18:24:56,098 - INFO - 
+--- Installing seaborn ---
+2025-09-29 18:24:57,225 - INFO - ✓ seaborn already installed, skipping
+2025-09-29 18:24:57,726 - INFO - 
+--- Installing plotly ---
+2025-09-29 18:24:58,012 - INFO - 🔄 Installing plotly via conda...
+2025-09-29 18:24:58,261 - WARNING - ⚠️  Conda install failed for plotly: 
+CondaToSNonInteractiveError: Terms of Service have not been accepted for the following channels. Please accept or remove them before proceeding:
+    • https://repo.anaconda.com/pkgs/main
+    • https://repo.anaconda.com/pkgs/r
+
+To accept a channel's Terms of Service, run the following and replace `CHANNEL` with the channel name/URL:
+    ‣ conda tos accept --override-channels --channel CHANNEL
+
+To remove channels with rejected Terms of Service, run the following and replace `CHANNEL` with the channel name/URL:
+    ‣ conda config --remove channels CHANNEL
+
+
+2025-09-29 18:24:58,261 - INFO - 🔄 Installing plotly via pip...
+2025-09-29 18:25:00,344 - INFO - ✓ Successfully installed plotly
+2025-09-29 18:25:00,848 - INFO - 
+--- Installing plotnine ---
+2025-09-29 18:25:00,973 - INFO - ✓ plotnine already installed, skipping
+2025-09-29 18:25:01,476 - INFO - 
+--- Installing bokeh ---
+2025-09-29 18:25:01,497 - INFO - ✓ bokeh already installed, skipping
+2025-09-29 18:25:02,001 - INFO - 
+--- Installing altair ---
+2025-09-29 18:25:02,302 - INFO - 🔄 Installing altair via conda...
+2025-09-29 18:25:02,553 - WARNING - ⚠️  Conda install failed for altair: 
+CondaToSNonInteractiveError: Terms of Service have not been accepted for the following channels. Please accept or remove them before proceeding:
+    • https://repo.anaconda.com/pkgs/main
+    • https://repo.anaconda.com/pkgs/r
+
+To accept a channel's Terms of Service, run the following and replace `CHANNEL` with the channel name/URL:
+    ‣ conda tos accept --override-channels --channel CHANNEL
+
+To remove channels with rejected Terms of Service, run the following and replace `CHANNEL` with the channel name/URL:
+    ‣ conda config --remove channels CHANNEL
+
+
+2025-09-29 18:25:02,553 - INFO - 🔄 Installing altair via pip...
+2025-09-29 18:25:03,715 - INFO - ✓ Successfully installed altair
+2025-09-29 18:25:04,220 - INFO - 
+--- Installing yfinance ---
+2025-09-29 18:25:05,665 - INFO - ✓ yfinance already installed, skipping
+2025-09-29 18:25:06,170 - INFO - 
+--- Installing quantlib ---
+2025-09-29 18:25:06,172 - INFO - 🔄 Installing QuantLib via pip...
+2025-09-29 18:25:06,626 - INFO - ✓ Successfully installed QuantLib
+2025-09-29 18:25:07,131 - INFO - 
+--- Installing arch ---
+2025-09-29 18:25:07,131 - INFO - 🔄 Installing arch via pip...
+2025-09-29 18:25:12,399 - INFO - ✓ Successfully installed arch
+2025-09-29 18:25:12,901 - INFO - 
+--- Installing pyportfolioopt ---
+2025-09-29 18:25:12,901 - INFO - 🔄 Installing pyportfolioopt via pip...
+2025-09-29 18:25:23,563 - INFO - ✓ Successfully installed pyportfolioopt
+2025-09-29 18:25:24,069 - INFO - 
+============================================================
+2025-09-29 18:25:24,069 - INFO - 📊 INSTALLATION REPORT
+2025-09-29 18:25:24,069 - INFO - ============================================================
+2025-09-29 18:25:24,069 - INFO - ✅ Successfully installed: 8
+2025-09-29 18:25:24,069 - INFO -    • cvxpy
+2025-09-29 18:25:24,070 - INFO -    • pulp
+2025-09-29 18:25:24,070 - INFO -    • pyomo
+2025-09-29 18:25:24,070 - INFO -    • plotly
+2025-09-29 18:25:24,070 - INFO -    • altair
+2025-09-29 18:25:24,070 - INFO -    • QuantLib
+2025-09-29 18:25:24,070 - INFO -    • arch
+2025-09-29 18:25:24,070 - INFO -    • pyportfolioopt
+2025-09-29 18:25:24,070 - INFO - ⏭️  Already installed (skipped): 9
+2025-09-29 18:25:24,070 - INFO -    • numpy
+2025-09-29 18:25:24,070 - INFO -    • pandas
+2025-09-29 18:25:24,070 - INFO -    • scipy
+2025-09-29 18:25:24,070 - INFO -    • gurobipy
+2025-09-29 18:25:24,070 - INFO -    • matplotlib
+2025-09-29 18:25:24,070 - INFO -    • seaborn
+2025-09-29 18:25:24,070 - INFO -    • plotnine
+2025-09-29 18:25:24,070 - INFO -    • bokeh
+2025-09-29 18:25:24,070 - INFO -    • yfinance
+2025-09-29 18:25:24,070 - INFO - 📈 Success rate: 100.0%

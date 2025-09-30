@@ -1,0 +1,8 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+/datascience_env
+/portfolio_results
+/__pycache__
+.csv$

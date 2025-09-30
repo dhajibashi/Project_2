@@ -1,0 +1,7 @@
+BJ, COST, DG, DLTR, KR, PSMT, WMT
+2019-09-30
+60
+n
+y
+0
+60
