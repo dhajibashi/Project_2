@@ -75,6 +75,8 @@ def data_acquisition():
     # print(window_size)
     # print(risk_free_rate_series)
 
+    db.close()
+
     return all_data, valid_tickers, permno_list, start_date_eval, look_back_period, \
         max_weight, min_weight, risk_free_rate_series, df_full
 
@@ -84,6 +86,7 @@ def db_connect():
     try:
         db = wrds.Connection(wrds_username='rio_yoko',
                              wrds_password='yokoyama0928')
+        # db = wrds.Connection()
         print("Connected to WRDS database.")
         return db
     except Exception as e:

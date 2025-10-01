@@ -23,6 +23,8 @@ import pandas as pd
 
 def main():
 
+    print("Starting data acquisition...")
+
     raw_returns_wide, tickers, permono_list, start_date, look_back_period, \
         max_weight, min_weight, risk_free_rate_series, df_full = data_acquisition()
 

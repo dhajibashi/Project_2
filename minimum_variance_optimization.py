@@ -139,12 +139,13 @@ def annualize_mean_std(monthly_returns):
 def sharpe_ratio(monthly_excess_returns):
     # monthly_rf = (1 + annual_rf) ** (1/12) - 1
     # excess = monthly_returns - monthly_rf
-    return (monthly_excess_returns.mean()) / (monthly_excess_returns.std(ddof=1) if monthly_excess_returns.std(ddof=1) != 0 else np.nan)
+    sharpe = math.sqrt(12) * (monthly_excess_returns.mean()) / (monthly_excess_returns.std(ddof=1) if monthly_excess_returns.std(ddof=1) != 0 else np.nan)
+    return sharpe
 
 
 # ========= output helpers (all functions, clean + commented) =========
 def turnover_series(weight_list: pd.DataFrame):
-    # --- Turnover (per month) ---
+    # --- Turnover (per month) ---\
     # Turnover ≈ 0.5 * Σ_i |w_t,i − w_{t−1,i}|
     if isinstance(weight_list, pd.DataFrame) and not weight_list.empty:
         W = weight_list.sort_index()
@@ -719,7 +720,7 @@ def weights_to_long(weights_df: pd.DataFrame, panel: pd.DataFrame,
         'pw': 'price_weighted'
     }
     out['method'] = out['method'].replace(method_map)
-    
+
     return out
 
 
