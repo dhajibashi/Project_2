@@ -3,6 +3,7 @@ import numpy as np
 from datetime import datetime as dt
 import wrds
 from pandas.tseries.offsets import MonthEnd
+from tqdm import tqdm
 
 # add turnover and weight stability functions
 # add plotting functions
@@ -62,6 +63,7 @@ def data_acquisition():
     # print("End date for evaluation (last available data):", end_date_eval)
     risk_free_rate_series = get_risk_free_rate_series(db, start_date_eval, end_date_eval)
 
+    df_full = get_crsp_monthly_panel(db, permno_list, start_date_eval.strftime('%Y-%m-%d'))
     # print(all_data)
     # print(valid_tickers)
     # print(start_date_eval, months)
@@ -69,8 +71,8 @@ def data_acquisition():
     # print(window_size)
     # print(risk_free_rate_series)
 
-    return all_data, valid_tickers, start_date_eval, look_back_period, \
-        max_weight, min_weight, risk_free_rate_series
+    return all_data, valid_tickers, permno_list,start_date_eval, look_back_period, \
+        max_weight, min_weight, risk_free_rate_series, df_full
 
 
 def db_connect():
@@ -504,6 +506,79 @@ def get_risk_free_rate_series(db, start, end) -> pd.DataFrame:
     rf = rf[(rf['date'] >= start) & (rf['date'] <= end)]
     rf.set_index('date', inplace=True)
     return rf
+
+
+def get_crsp_monthly_panel(db, permono_list: list, start_date: str) -> pd.DataFrame:
+    """
+    Pull the CRSP monthly panel *with* security descriptors via a time-bounded
+    join to msenames (since shrcd/exchcd live in the name-history tables).
+
+    Filters (can be edited):
+      - U.S. common stocks: shrcd in (10, 11)
+      - Major exchanges   : exchcd in (1, 2, 3)  # NYSE, AMEX, NASDAQ
+
+    Returns
+    -------
+    DataFrame with date, permno, prc, shrout, ret, retx, shrcd, exchcd,
+    and a computed market cap (mktcap).
+    """
+    # Convert start/end to Timestamps
+    start_dt = pd.to_datetime(start_date)
+    # end_dt   = pd.to_datetime(end)
+    # print('Fetching CRSP monthly data from WRDS...')
+    # print(start_dt, end_dt)
+
+    # # ---- Pull data in yearly chunks to avoid overloading WRDS ----
+    # years = range(start_dt.year, end_dt.year + 1)
+    # frames = []
+
+    # for y in tqdm(years, desc="CRSP years"):
+
+    # Restrict each SQL to one calendar year, clipped to [start, end]
+    # chunk_start = max(pd.Timestamp(f"{y}-01-01"), start_dt)
+    # chunk_end   = min(pd.Timestamp(f"{y}-12-31"), end_dt)
+
+    q = f"""
+    SELECT
+        m.date,
+        m.permno,
+        m.permco,
+        m.prc,
+        m.shrout,
+        m.ret,
+        m.retx,
+        n.shrcd,
+        n.exchcd
+    FROM crsp.msf AS m
+    JOIN crsp.msenames AS n
+        ON m.permno = n.permno
+        AND m.date BETWEEN n.namedt AND COALESCE(n.nameendt, '9999-12-31') 
+        -- A given stock (permno) can have multiple records in msenames over time: ticker changes, exchange moves, share code reclassifications, mergers.
+    WHERE m.date >= '{start_date}'
+        AND m.permno IN ({','.join(map(str, permono_list))})
+        AND m.prc    IS NOT NULL
+        AND m.shrout IS NOT NULL
+    ORDER BY m.date, m.permno;
+    """
+
+    # frames.append(db.raw_sql(q))
+
+    # Concatenate all yearly chunks
+    df = db.raw_sql(q)
+
+    # ---- Standardize dtypes and construct market cap ----
+    if not df.empty:
+        df["date"]   = pd.to_datetime(df["date"])
+        df["prc"]    = pd.to_numeric(df["prc"], errors="coerce").abs()  # CRSP price may be negative (indicating a bid/ask mid)
+        df["shrout"] = pd.to_numeric(df["shrout"], errors="coerce") * 1000.0  # in thousands of shares
+        df["ret"]    = pd.to_numeric(df.get("ret", pd.Series()),   errors="coerce")
+        df["retx"]   = pd.to_numeric(df.get("retx", pd.Series()),  errors="coerce")
+        df["mktcap"] = df["prc"] * df["shrout"]
+        # set the index of the df to dates
+        df = df.set_index('date').sort_index()
+
+    return df
+
 
 
 if __name__ == "__main__":

@@ -8,6 +8,8 @@ from copy import deepcopy
 from sklearn.covariance import LedoitWolf
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+from tqdm import tqdm
+
 
 # from IPython.display import display
 
@@ -133,6 +135,7 @@ def sharpe_ratio(monthly_excess_returns):
     return (monthly_excess_returns.mean()) / (monthly_excess_returns.std(ddof=1) if monthly_excess_returns.std(ddof=1) != 0 else np.nan)
 
 
+# ========= output helpers (all functions, clean + commented) =========
 def turnover_series(weight_list: pd.DataFrame):
     # --- Turnover (per month) ---
     # Turnover ≈ 0.5 * Σ_i |w_t,i − w_{t−1,i}|
@@ -147,15 +150,372 @@ def turnover_series(weight_list: pd.DataFrame):
 
     return turnover
 
+def compute_turnover(weights_df):
+    """
+    Turnover ≈ 0.5 * Σ_i |w_t,i − w_{t−1,i}|
+    weights_df : long-form DataFrame with ['date','method','ticker','weight']
+    returns     : DataFrame with ['date','method','turnover']
+    """
+    out = []
+    for method in weights_df['method'].unique():
+        w = (weights_df[weights_df['method']==method]
+             .pivot(index='date', columns='ticker', values='weight')
+             .sort_index())
+        for i in range(1, len(w)):
+            prev, curr = w.iloc[i-1].values, w.iloc[i].values
+            out.append({
+                'date': w.index[i],
+                'method': method,
+                'turnover': float(0.5 * np.sum(np.abs(curr - prev)))
+            })
+    return pd.DataFrame(out)
 
-def weight_stability_series(weight_list: pd.DataFrame):
-    # --- Weight stability (cross-sectional std each month) ---
-    if isinstance(weight_list, pd.DataFrame) and not weight_list.empty:
-        weight_stability = weight_list.std(axis=1)
-    else:
-        weight_stability = pd.Series(dtype=float, name="weight_stability")
 
-    return weight_stability
+def compute_weight_stability(weights_df: pd.DataFrame):
+    out = []
+    for method in weights_df['method'].unique():
+        w = (weights_df[weights_df['method']==method]
+             .pivot(index='date', columns='ticker', values='weight')
+             .sort_index())
+        for i in range(len(w)):
+            curr = w.iloc[i].values
+            out.append({
+                'date': w.index[i],
+                'method': method,
+                'weight_dispersion': float(np.std(curr))
+            })
+    return pd.DataFrame(out)
+
+
+def drawdown_series(cum_series):
+    """
+    compute drawdown series and max drawdown
+    cum_series : pd.Series of cumulative returns (growth of $1)
+    returns    : (drawdown_series, max_drawdown_as_positive_float)
+    """
+    peak = cum_series.cummax()
+    dd = (cum_series / peak) - 1.0
+    mdd = -dd.min()
+    return dd, mdd
+
+
+def rolling_sharpe_series(excess_monthly_returns, window = 12):
+    """
+    rolling (annualized) sharpe using excess returns (subtract monthly rf)
+    """
+    import math
+    # monthly_rf = (1.0 + monthly_rf) ** (1.0 / 12.0) - 1.0
+    # excess = monthly_returns - monthly_rf
+    rs = (excess_monthly_returns.rolling(window).mean() / excess_monthly_returns.rolling(window).std())
+    return rs
+
+
+def plot_cumulative(perf_df):
+    """
+    line chart: cumulative returns (growth of $1) for sample vs ledoit-wolf
+    expects perf_df with columns: date, sample_cum, lw_cum
+    """
+    import matplotlib.pyplot as plt
+    plt.figure(figsize = (9, 5))
+    plt.plot(perf_df["date"], perf_df["sample_cum"], label = "gmv (sample)")
+    plt.plot(perf_df["date"], perf_df["lw_cum"],     label = "gmv (ledoit-wolf)")
+    plt.title("cumulative return (growth of $1)")
+    plt.xlabel("date")
+    plt.ylabel("cumulative")
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_drawdowns(perf_df):
+    """
+    line chart: drawdowns for sample vs ledoit-wolf
+    expects perf_df with columns: date, sample_cum, lw_cum
+    """
+    import matplotlib.pyplot as plt
+    dd_s, mdd_s = drawdown_series(perf_df["sample_cum"])
+    dd_l, mdd_l = drawdown_series(perf_df["lw_cum"])
+    plt.figure(figsize = (9, 4))
+    plt.plot(perf_df["date"], dd_s, label = f"sample (mdd {mdd_s:.2%})")
+    plt.plot(perf_df["date"], dd_l, label = f"ledoit-wolf (mdd {mdd_l:.2%})")
+    plt.title("drawdown")
+    plt.xlabel("date")
+    plt.ylabel("drawdown")
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_rolling_sharpe(perf_df, window = 12):
+    """
+    line chart: rolling sharpe for sample vs ledoit-wolf
+    expects perf_df with columns: date, sample_return, lw_return
+    """
+    import matplotlib.pyplot as plt
+    rs_s  = rolling_sharpe_series(perf_df["sample_excess_return"], window = window)
+    rs_lw = rolling_sharpe_series(perf_df["lw_excess_return"],     window = window)
+    plt.figure(figsize = (9, 4))
+    plt.plot(perf_df["date"], rs_s,  label = "sample")
+    plt.plot(perf_df["date"], rs_lw, label = "ledoit-wolf")
+    plt.title(f"rolling {window}-month sharpe")
+    plt.xlabel("date")
+    plt.ylabel("sharpe")
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_turnover_timeseries(turnover_df):
+    """
+    line charts: turnover by method over time
+    expects turnover_df with columns: date, method, turnover
+    """
+    import matplotlib.pyplot as plt
+    # for method, grp in turnover_df.groupby("method"):
+    #     plt.figure(figsize = (9, 3))
+    #     plt.plot(grp["date"], grp["turnover"], label = method)
+    #     plt.title(f"turnover — {method}")
+    #     plt.xlabel("date")
+    #     plt.ylabel("0.5 * sum |Δw|")
+    #     plt.legend()
+    #     plt.tight_layout()
+    #     plt.show()
+    df = turnover_df.sort_values("date").copy()
+
+    fig, ax = plt.subplots(figsize=(10, 4))
+    for method, grp in df.groupby("method"):
+        ax.plot(grp["date"], grp["turnover"], label=method)
+
+    ax.set_title("turnover by method over time")
+    ax.set_xlabel("date")
+    ax.set_ylabel("0.5 * sum |Δw|")
+    ax.legend(title="method", ncol=2)
+    fig.autofmt_xdate()
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_weights_stability_timeseries(weights_stability_df):
+    import matplotlib.pyplot as plt
+
+    df = weights_stability_df.sort_values("date").copy()
+
+    fig, ax = plt.subplots(figsize=(10, 4))
+    for method, grp in df.groupby("method"):
+        ax.plot(grp["date"], grp["weight_dispersion"], label=method)
+
+    ax.set_title("weight dispersion by method over time")
+    ax.set_xlabel("date")
+    ax.set_ylabel("weight dispersion (std of portfolio weights)")
+    ax.legend(title="method", ncol=2)
+    fig.autofmt_xdate()
+    plt.tight_layout()
+    plt.show()
+
+    # for method, grp in weights_stability_df.groupby("method"):
+    #     plt.figure(figsize = (9, 3))
+    #     plt.plot(grp["date"], grp["weight_dispersion"], label = method)
+    #     plt.title(f"weight_dispersion — {method}")
+    #     plt.xlabel("date")
+    #     plt.ylabel("weight_dispersion (std of portfolio weights)")
+    #     plt.legend()
+    #     plt.tight_layout()
+    #     plt.show()
+
+
+def plot_turnover_distribution(turnover_df, bins = 30):
+    """
+    histogram: turnover distribution by method
+    expects turnover_df with columns: method, turnover
+    """
+    import matplotlib.pyplot as plt
+    for method, grp in turnover_df.groupby("method"):
+        plt.figure(figsize = (7, 4))
+        plt.hist(grp["turnover"], bins = bins, alpha = 0.85)
+        plt.title(f"turnover distribution — {method}")
+        plt.xlabel("0.5 * sum |Δw| per month")
+        plt.ylabel("frequency")
+        plt.tight_layout()
+        plt.show()
+
+
+def plot_corr_heatmap(returns_wide):
+    """
+    heatmap: asset correlation matrix for the universe used
+    expects returns_wide wide DataFrame (assets in columns)
+    """
+    import matplotlib.pyplot as plt
+    corr = returns_wide.corr()
+    plt.figure(figsize = (7, 6))
+    im = plt.imshow(corr.values, interpolation = "nearest")
+    plt.colorbar(im, fraction = 0.046, pad = 0.04)
+    plt.xticks(range(len(corr.columns)), corr.columns, rotation = 90)
+    plt.yticks(range(len(corr.index)), corr.index)
+    plt.title("asset correlation (in-sample universe)")
+    plt.tight_layout()
+    plt.show()
+
+
+def show_summary_tables(summary_df, perf_df, turnover_df, tail_n = 5):
+    """
+    display key tables inline for grading
+    """
+    from IPython.display import display
+    display(summary_df)
+    display(perf_df.tail(tail_n))
+    display(turnover_df.tail(tail_n))
+
+
+def save_csvs(perf_df, weights_df, turnover_df, stability_df, summary_df):
+    """
+    save results to csv for reporting (kept modular so you can call or skip)
+    """
+    perf_df.to_csv("oos_performance.csv", index = False)
+    weights_df.to_csv("weights_history.csv", index = False)
+    turnover_df.to_csv("turnover.csv", index = False)
+    stability_df.to_csv("stability.csv", index = False)
+    summary_df.to_csv("summary_metrics.csv", index = False)
+
+
+def make_all_charts(perf_df, turnover_df, weights_stability_df, returns_wide = None):
+    """
+    one-click plot routine that produces all required visuals
+    """
+    plot_cumulative(perf_df)
+    plot_drawdowns(perf_df)
+    plot_rolling_sharpe(perf_df, window = 12)
+    plot_turnover_timeseries(turnover_df)
+    plot_turnover_distribution(turnover_df)
+    plot_weights_stability_timeseries(weights_stability_df)
+    if returns_wide is not None:
+        plot_corr_heatmap(returns_wide)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def build_topn_indexes(panel: pd.DataFrame, risk_free_series) -> pd.DataFrame:
+    """
+    Construct Equal-, Value-, and Price-Weighted index levels (base=100).
+
+    Methodology reminder:
+    - At month t, choose constituents and weights from t-1 information.
+    - Grow index from t-1 to t using ret_eff (includes delistings).
+
+    Returns
+    -------
+    DataFrame with three columns (EW, VW, PW) indexed by month t.
+    """
+
+    # Organize by month for quick lookup
+    panel = panel.sort_values(['date', 'permno'])
+    months = sorted(panel['date'].unique())
+    by_month = {d: g for d, g in panel.groupby('date')}
+
+    # Initialize index levels
+    ew_level = [100.0]
+    vw_level = [100.0]
+    pw_level = [100.0]
+
+    # Loop from 2nd available month; need t-1 and t
+    for i in tqdm(range(1, len(months)), desc="Index Calculation Progress"):
+        t_1, t = months[i-1], months[i]
+        g_t1 = by_month[t_1].dropna(subset=['mktcap', 'prc'])
+        g_t  = by_month[t]
+
+        if g_t1.empty or g_t.empty:
+            # carry forward if missing data
+            ew_level.append(ew_level[-1])
+            vw_level.append(vw_level[-1])
+            pw_level.append(pw_level[-1])
+            continue
+
+        # Top-N by market cap at t-1
+        chosen = g_t1.sort_values('mktcap', ascending=False).set_index('permno')
+
+        # Ensure we have returns at t for the chosen PERMNOs
+        g_t = g_t.set_index('permno')
+        # Find intersection of chosen stocks and those with returns at t
+        common = chosen.index.intersection(g_t.index)
+        # If no common stocks, carry forward previous index levels
+        if len(common) == 0:
+            ew_level.append(ew_level[-1])
+            vw_level.append(vw_level[-1])
+            pw_level.append(pw_level[-1])
+            continue
+
+        # Effective returns at t for the chosen stocks
+        r_t = g_t.loc[common, 'ret'].astype(float)
+
+        # Equal-Weighted: average of gross returns
+        r_t_ew = r_t.dropna()
+        ew_gross = (1.0 + r_t_ew).mean() if not r_t_ew.empty else 1.0
+
+        # Value-Weighted: weights from t-1 market cap
+        w_vw = chosen.loc[common, 'mktcap'].astype(float)
+        mask_vw = r_t.notna()
+        # Restrict to stocks with non-missing returns at t
+        w_vw = w_vw.loc[mask_vw]
+        r_vw = r_t.loc[mask_vw]
+        if r_vw.empty or w_vw.sum() <= 0:
+            vw_gross = 1.0
+        else:
+            w_vw = w_vw / w_vw.sum()
+            vw_gross = ((1.0 + r_vw) * w_vw).sum()
+
+        # Price-Weighted: weights from t-1 price
+        w_pw = chosen.loc[common, 'prc'].astype(float)
+        mask_pw = r_t.notna()
+        # Restrict to stocks with non-missing returns at t
+        w_pw = w_pw.loc[mask_pw]
+        r_pw = r_t.loc[mask_pw]
+        if r_pw.empty or w_pw.sum() <= 0:
+            pw_gross = 1.0
+        else:
+            w_pw = w_pw / w_pw.sum()
+            pw_gross = ((1.0 + r_pw) * w_pw).sum()
+
+
+        # if (i == len(months) - 1) :
+            # sort descending, keep the index
+            # print(sorted(w_vw.items(), key=lambda x: x[1], reverse=True))
+            # print(sorted(w_pw.items(), key=lambda x: x[1], reverse=True))
+
+        # Compound index levels
+        ew_level.append(ew_level[-1] * float(ew_gross))
+        vw_level.append(vw_level[-1] * float(vw_gross))
+        pw_level.append(pw_level[-1] * float(pw_gross))
+
+    # Assemble output DataFrame
+    # Convert to tidy DataFrame indexed by month t
+    idx_months = pd.to_datetime(months[:])
+    ew = pd.Series(ew_level[:], index=idx_months, name='Equal-Weighted')
+    vw = pd.Series(vw_level[:], index=idx_months, name='Value-Weighted')
+    pw = pd.Series(pw_level[:], index=idx_months, name='Price-Weighted')
+
+    # Combine all index levels into a single DataFrame
+    return pd.concat([ew, vw, pw], axis=1)
+
+
+
+
+
+
+
+
+
+
+
 
 # def summary_statistics(weight_list: pd.DataFrame,
 #                        return_list: pd.DataFrame,

@@ -6,18 +6,27 @@
 # idea: use min end date to get the full data set
 # use max begin date to get beginning of the full data set
 
+# add turnover and weight stability functions
+# add plotting functions
+# add equal weight, value weight benchmark
+# subtract risk free rate from returns to get excess returns for the df_full
+# just subtract risk free rate after calculating returns
 
-from data_acquisition_coverage_validation import *
-from minimum_variance_optimization import *
+from data_acquisition_coverage_validation import data_acquisition, get_crsp_monthly_panel
+from minimum_variance_optimization import returns_to_excess, backtest_minvar, summarize_performance, \
+    compute_turnover, compute_weight_stability, make_all_charts, show_summary_tables
+
 
 
 def main():
 
-    raw_returns_wide, tickers, start_date, look_back_period, \
-        max_weight, min_weight, risk_free_rate_series = data_acquisition()
+    raw_returns_wide, tickers, permono_list, start_date, look_back_period, \
+        max_weight, min_weight, risk_free_rate_series, df_full = data_acquisition()
+
     # print("Data acquisition complete.")
     # print(tickers)
     # print(df)
+    print(df_full)
 
     # Sort the columns alphabetically for easier comparison
     raw_returns_wide = raw_returns_wide.reindex(sorted(raw_returns_wide.columns), axis=1)
@@ -29,10 +38,21 @@ def main():
 
     monthly_rf = risk_free_rate_series.mean()
 
-    summary = summarize_performance(perf_df)
+    summary_df = summarize_performance(perf_df)
 
-    print("Summary statistics for Minimum Variance Portfolio:")
-    print(summary)
+    print("\nSummary statistics for Minimum Variance Portfolio:")
+    print(summary_df)
+
+    turnover_df = compute_turnover(weights_df)
+    weights_stability_df = compute_weight_stability(weights_df)
+
+    make_all_charts(perf_df, turnover_df, weights_stability_df, raw_returns_wide)
+
+    # show_summary_tables(summary_df, perf_df, turnover_df)
+
+
+
+
     # print(perf_df)
     # print(weights_df)    
 
