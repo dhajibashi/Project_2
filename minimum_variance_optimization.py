@@ -219,6 +219,84 @@ def rolling_sharpe_series(excess_monthly_returns, window=12):
     return rs
 
 
+def sortino(excess):
+    # rf_m = (1+annual_rf)**(1/12) - 1
+    # excess = x
+    downside = excess[excess<0]
+    dd = np.sqrt((downside**2).mean())
+    return np.nan if dd==0 else math.sqrt(12)*excess.mean()/dd
+
+
+def drawdown_stats(cum):
+    peak = cum.cummax()
+    dd = cum/peak - 1
+    return dd.min()
+
+
+def turnover_avg(weights_df, method):
+    # average monthly turnover
+    w = (weights_df[weights_df['method']==method]
+            .pivot(index='date', columns='ticker', values='weight')
+            .sort_index())
+    turns = []
+    for i in range(1, len(w)):
+        prev, curr = w.iloc[i-1].values, w.iloc[i].values
+        turns.append(np.sum(np.abs(curr-prev)))
+    return np.mean(turns) if turns else np.nan
+    
+
+def build_summary_plus(perf_df, weights_df):
+    """
+    build extended performance metrics (summary_plus)
+    perf_df   : DataFrame with columns [date, sample_return, lw_return]
+    weights_df: DataFrame with columns [date, method, ticker, weight]
+    annual_rf : annual risk-free rate (decimal)
+    returns   : DataFrame summary_plus with rows for sample and ledoit_wolf
+    """
+    
+    rows = []
+    for label, col1, col2 in [("sample","sample_return", "sample_excess_return"),("ledoit_wolf","lw_return", "lw_excess_return"), 
+                       ("equal_weighted","ew_return", "ew_excess_return"),("value_weighted","vw_return", "vw_excess_return"),
+                       ("price_weighted","pw_return", "pw_excess_return")]:
+        ann_r, ann_s = annualize_mean_std(perf_df[col1])
+        sr = sharpe_ratio(perf_df[col2])
+        sor = sortino(perf_df[col2])
+        cum = (1+perf_df[col1]).cumprod()
+        mdd = drawdown_stats(cum)
+        calmar = ann_r/abs(mdd) if mdd<0 else np.nan
+        var95 = perf_df[col1].quantile(0.05)
+        cvar95 = perf_df[col1][perf_df[col1]<=var95].mean()
+        hit = (perf_df[col1]>0).mean()
+        skew = perf_df[col1].skew()
+        kurt = perf_df[col1].kurtosis()
+        # before building the row
+        turn_df = compute_turnover(weights_df[weights_df['method'] == label])
+        avg_turn_over = turn_df['turnover'].mean() if not turn_df.empty else np.nan
+
+        stab_df = compute_weight_stability(weights_df[weights_df['method'] == label])
+        avg_weight_dispersion = stab_df['weight_dispersion'].mean() if not stab_df.empty else np.nan
+        # avg_turn_over = compute_turnover(weights_df[weights_df['method']==label]).mean()
+        # avg_weight_dispersion = compute_weight_stability(weights_df[weights_df['method']==label]).mean()
+        rows.append({
+            "strategy": label,
+            "ann_return": ann_r,
+            "ann_vol": ann_s,
+            "sharpe": sr,
+            "sortino": sor,
+            "max_dd": mdd,
+            "calmar": calmar,
+            "VaR95": var95,
+            "CVaR95": cvar95,
+            "hit_ratio": hit,
+            "skew": skew,
+            "kurtosis": kurt,
+            "avg_turnover": avg_turn_over,
+            "avg_weight_dispersion": avg_weight_dispersion
+        })
+    return pd.DataFrame(rows)
+
+
+
 def plot_cumulative(perf_df):
     """
     line chart: cumulative returns (growth of $1) for sample vs ledoit-wolf
@@ -633,6 +711,15 @@ def weights_to_long(weights_df: pd.DataFrame, panel: pd.DataFrame,
     out = (pd.concat(rows, ignore_index=True)
              .sort_values(['date', 'method', 'ticker'])
              .reset_index(drop=True))
+    
+    # rename columns from ev to equal_weighted, etc
+    method_map = {
+        'ew': 'equal_weighted',
+        'vw': 'value_weighted',
+        'pw': 'price_weighted'
+    }
+    out['method'] = out['method'].replace(method_map)
+    
     return out
 
 

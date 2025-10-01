@@ -11,10 +11,13 @@
 # add equal weight, value weight benchmark
 # subtract risk free rate from returns to get excess returns for the df_full
 # just subtract risk free rate after calculating returns
+
 from IPython.display import display
 from data_acquisition_coverage_validation import data_acquisition, get_crsp_monthly_panel
 from minimum_variance_optimization import returns_to_excess, backtest_minvar, summarize_performance, \
-    compute_turnover, compute_weight_stability, make_all_charts, show_summary_tables, build_topn_indexes
+    compute_turnover, compute_weight_stability, make_all_charts, show_summary_tables, build_topn_indexes, \
+    build_summary_plus
+    
 import numpy as np
 import pandas as pd
 
@@ -40,7 +43,7 @@ def main():
         topn_excess_returns_df = topn_excess_returns_df.rename(columns={col: col.split('_')[0] + '_excess_return'})
     # display(topn_weights_df.head())
     # display(topn_returns_df.head())
-    display(topn_levels_df.head())
+    # display(topn_levels_df.head())
 
     # Sort the columns alphabetically for easier comparison
     raw_returns_wide = raw_returns_wide.reindex(sorted(raw_returns_wide.columns), axis=1)
@@ -52,19 +55,22 @@ def main():
     # In the columns of topn_excess_returns_df, add "_"
     perf_df = pd.concat([perf_df, topn_raw_returns_df, topn_excess_returns_df, topn_levels_df], axis=1)
     perf_df = perf_df.reset_index()
-    display(perf_df.head())
+    # display(perf_df.head())
     # display(perf_df.tail())
 
     weights_df = pd.concat([weights_df, topn_weights_df], axis=0)
-    display(weights_df.head())
+    # display(weights_df.head())
     # display(weights_df.tail())
 
     monthly_rf = risk_free_rate_series.mean()
 
     summary_df = summarize_performance(perf_df)
-
     print("\nSummary statistics for Minimum Variance Portfolio:")
     display(summary_df)
+
+    summary_plus_df = build_summary_plus(perf_df, weights_df)
+    print("\nExtended Portflio Summary Statistics")
+    display(summary_plus_df)
 
     turnover_df = compute_turnover(weights_df)
     weights_stability_df = compute_weight_stability(weights_df)
