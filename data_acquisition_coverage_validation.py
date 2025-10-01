@@ -53,15 +53,16 @@ def data_acquisition():
 
     # Ask the user for the annual risk-free rate (as a decimal)
     # risk_free_rate = risk_free_rate_input()
+    end_date_eval = all_data.index.max()
+    # print("End date for evaluation (last available data):", end_date_eval)
+    risk_free_rate_series = get_risk_free_rate_series(db, start_date_eval, end_date_eval)
 
-    risk_free_rate_series = None
-
-    print(all_data)
-    print(valid_tickers)
-    print(start_date_eval, months)
-    print(max_weight, min_weight)
-    print(window_size)
-    print(risk_free_rate_series)
+    # print(all_data)
+    # print(valid_tickers)
+    # print(start_date_eval, months)
+    # print(max_weight, min_weight)
+    # print(window_size)
+    # print(risk_free_rate_series)
 
     return all_data, valid_tickers, start_date_eval, months, \
         max_weight, min_weight, window_size, risk_free_rate_series
@@ -342,7 +343,7 @@ def get_returns(df_conn, permno_list: list, start: str, max_missing=None) -> pd.
     if d.empty:
         return pd.DataFrame(index=pd.DatetimeIndex([], name='date'))
 
-    d['date'] = pd.to_datetime(d['date'])
+    d['date'] = pd.to_datetime(d['date']) + MonthEnd(0)  # ensure month-end
     d['ret'] = pd.to_numeric(d['ret'], errors='coerce')
 
     n_missing = d['ret'].isna().sum()
@@ -519,6 +520,15 @@ def risk_free_rate_input():
             print("Invalid input. Please enter a non-negative number.")
     print(f"Annual risk-free rate: {rf_rate}")
     return rf_rate
+
+
+def get_risk_free_rate_series(db, start, end) -> pd.DataFrame:
+    rf = db.get_table(library='ff', table='factors_monthly')[['date', 'rf']]
+    rf['date'] = pd.to_datetime(rf['date']) + MonthEnd(0)   # ensure month-end
+    rf = rf.rename(columns={'rf': 'risk_free_rate'})
+    rf = rf[(rf['date'] >= start) & (rf['date'] <= end)]
+    rf.set_index('date', inplace=True)
+    return rf
 
 
 if __name__ == "__main__":
