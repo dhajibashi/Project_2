@@ -83,9 +83,11 @@ def db_connect():
 def ticker_input():
     # Ask the user for a list of tickers (comma separated) with error handling
     while True:
+        # Split by comma and strip whitespace and remove "
         tickers = input(
             "Enter a list of stock tickers (comma separated): ").split(',')
         tickers = [ticker.strip().upper() for ticker in tickers]
+        tickers = [ticker.replace('"', '').replace("'", '') for ticker in tickers]
         if not tickers or tickers == ['']:
             print("Invalid input. Please enter at least one ticker.")
         else:
@@ -115,7 +117,7 @@ def date_input():
             end_date = pd.Timestamp(start_date) + pd.DateOffset(months=num_months-1)
             print(
                 f"Date range: {pd.Timestamp(start_date).date()} to {end_date.date()}")
-            return pd.Timestamp(start_date), months_str
+            return pd.Timestamp(start_date), num_months
 
         except ValueError:
             print("Invalid input. Use YYYY-MM-DD for the date and a positive integer for months.")
@@ -194,6 +196,9 @@ def pick_permno_for_ticker(db, ticker: str, start_date: pd.Timestamp, max_missin
     # df['nameendt'] = pd.to_datetime(df['nameendt'])
     # df['nameendt'] = df['nameendt'].fillna(pd.Timestamp.max)
 
+    # print(ticker, start_date, max_missing, shrcd_list)
+    # print(df)
+
     if df.empty:
         return None
 
@@ -221,7 +226,7 @@ def pick_permno_for_ticker(db, ticker: str, start_date: pd.Timestamp, max_missin
         df1 = get_delistings(db, [permno], start_date.strftime('%Y-%m-%d'))
         df2 = get_returns(db, [permno], start_date.strftime('%Y-%m-%d'), max_missing)
 
-        if df1.empty and (df2 is not None):
+        if df1.empty and isinstance(df2, pd.DataFrame) and not df2.empty:
             return permno
         elif not df1.empty:
             print('Delisting data found for PERMNO:', permno)
@@ -346,15 +351,35 @@ def get_returns(df_conn, permno_list: list, start: str, max_missing=None) -> pd.
     d['date'] = pd.to_datetime(d['date']) + MonthEnd(0)  # ensure month-end
     d['ret'] = pd.to_numeric(d['ret'], errors='coerce')
 
-    n_missing = d['ret'].isna().sum()
-    if n_missing:
+     # Count missing per PERMNO BEFORE filling
+    if d['ret'].isna().any():
+        miss_counts = d.loc[d['ret'].isna()].groupby('permno')['ret'].size()
+    else:
+        # no missing -> zeros for all seen permnos
+        miss_counts = pd.Series(0, index=d['permno'].unique(), name='ret')
+
+    # Enforce per-PERMNO missing threshold (if requested)
+    if max_missing is not None:
+        bad_permnos = miss_counts[miss_counts > max_missing]
+        if not bad_permnos.empty:
+            print(
+                f"Warning: dropping PERMNOs exceeding allowed missing months ({max_missing}): "
+                f"{sorted(map(int, bad_permnos.index.tolist()))}"
+            )
+            d = d[~d['permno'].isin(bad_permnos.index)]
+
+    # If everything was dropped, return an empty, well-formed frame
+    if d.empty:
+        return pd.DataFrame(index=pd.DatetimeIndex([], name='date'))
+
+    # Fill remaining missing to 0.0 (policy choice)
+    n_missing_remaining = d['ret'].isna().sum()
+    if n_missing_remaining:
         print(
-            f"Warning: {n_missing} missing returns coerced to 0.0 across {d['permno'].nunique()} PERMNO(s).")
+            f"Info: {n_missing_remaining} missing returns (after filtering) "
+            f"coerced to 0.0 across {d['permno'].nunique()} PERMNO(s)."
+        )
         d['ret'] = d['ret'].fillna(0.0)
-    
-    if max_missing is not None and n_missing > max_missing:
-        print(f"Warning: Number of missing returns ({n_missing}) exceeds the allowed maximum ({max_missing}).")
-        return None
 
     wide = (
         d.pivot(index='date', columns='permno', values='ret')
