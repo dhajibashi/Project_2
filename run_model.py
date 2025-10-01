@@ -15,8 +15,8 @@ from IPython.display import display
 from data_acquisition_coverage_validation import data_acquisition, get_crsp_monthly_panel
 from minimum_variance_optimization import returns_to_excess, backtest_minvar, summarize_performance, \
     compute_turnover, compute_weight_stability, make_all_charts, show_summary_tables, build_topn_indexes
-
-
+import numpy as np
+import pandas as pd
 
 def main():
 
@@ -31,21 +31,31 @@ def main():
     # Build top-N indexes
     # print(df_full.head())
 
-    topn_weights_df, topn_returns_df = build_topn_indexes(df_full, look_back_period)
+    # display(raw_returns_wide.head())
+
+    topn_weights_df, topn_raw_returns_df, topn_levels_df = build_topn_indexes(df_full, look_back_period)
+    # display(topn_raw_returns_df.head())
+    topn_excess_returns_df = returns_to_excess(topn_raw_returns_df, risk_free_rate_series)
+    for col in topn_excess_returns_df.columns:
+        topn_excess_returns_df = topn_excess_returns_df.rename(columns={col: col.split('_')[0] + '_excess_return'})
     # display(topn_weights_df.head())
     # display(topn_returns_df.head())
+    display(topn_levels_df.head())
 
     # Sort the columns alphabetically for easier comparison
     raw_returns_wide = raw_returns_wide.reindex(sorted(raw_returns_wide.columns), axis=1)
-
     excess_returns_wide = returns_to_excess(raw_returns_wide, risk_free_rate_series)
-
     perf_df, weights_df = backtest_minvar(raw_returns_wide, excess_returns_wide, \
                                           look_back_period, min_weight, max_weight)
-
+    perf_df = perf_df.set_index('date')
+    # display(topn_excess_returns_df.head())
+    # In the columns of topn_excess_returns_df, add "_"
+    perf_df = pd.concat([perf_df, topn_raw_returns_df, topn_excess_returns_df, topn_levels_df], axis=1)
+    perf_df = perf_df.reset_index()
     display(perf_df.head())
     # display(perf_df.tail())
 
+    weights_df = pd.concat([weights_df, topn_weights_df], axis=0)
     display(weights_df.head())
     # display(weights_df.tail())
 

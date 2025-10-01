@@ -116,7 +116,10 @@ def summarize_performance(perf_df):
     # summarize performance
     summary = []
     for label, col1, col2 in [("sample", "sample_return", "sample_excess_return"),
-                              ("ledoit_wolf", "lw_return", "lw_excess_return")]:
+                              ("ledoit_wolf", "lw_return", "lw_excess_return"),
+                              ("equal_weighted", "ew_return", "ew_excess_return"),
+                              ("value_weighted", "vw_return", "vw_excess_return"),
+                              ("price_weighted", "pw_return", "pw_excess_return")]:
         ann_mean, ann_std = annualize_mean_std(perf_df[col1])
         sr = sharpe_ratio(perf_df[col2])
         summary.append({"strategy": label, "annual_return": ann_mean,
@@ -225,6 +228,10 @@ def plot_cumulative(perf_df):
     plt.figure(figsize=(9, 5))
     plt.plot(perf_df["date"], perf_df["sample_cum"], label="gmv (sample)")
     plt.plot(perf_df["date"], perf_df["lw_cum"],     label="gmv (ledoit-wolf)")
+    # the bench marks should be ploted with dotted lines
+    plt.plot(perf_df["date"], perf_df["ew_cum"],     label="equal weighted", linestyle="--")
+    plt.plot(perf_df["date"], perf_df["vw_cum"],     label="value weighted", linestyle="--")
+    plt.plot(perf_df["date"], perf_df["pw_cum"],     label="price weighted", linestyle="--")
     plt.title("cumulative return (growth of $1)")
     plt.xlabel("date")
     plt.ylabel("cumulative")
@@ -241,9 +248,16 @@ def plot_drawdowns(perf_df):
     import matplotlib.pyplot as plt
     dd_s, mdd_s = drawdown_series(perf_df["sample_cum"])
     dd_l, mdd_l = drawdown_series(perf_df["lw_cum"])
+    dd_ew, mdd_ew = drawdown_series(perf_df["ew_cum"])
+    dd_vw, mdd_vw = drawdown_series(perf_df["vw_cum"])
+    dd_pw, mdd_pw = drawdown_series(perf_df["pw_cum"])
+
     plt.figure(figsize=(9, 4))
     plt.plot(perf_df["date"], dd_s, label=f"sample (mdd {mdd_s:.2%})")
     plt.plot(perf_df["date"], dd_l, label=f"ledoit-wolf (mdd {mdd_l:.2%})")
+    plt.plot(perf_df["date"], dd_ew, label=f"equal weighted (mdd {mdd_ew:.2%})", linestyle="--")
+    plt.plot(perf_df["date"], dd_vw, label=f"value weighted (mdd {mdd_vw:.2%})", linestyle="--")
+    plt.plot(perf_df["date"], dd_pw, label=f"price weighted (mdd {mdd_pw:.2%})", linestyle="--")
     plt.title("drawdown")
     plt.xlabel("date")
     plt.ylabel("drawdown")
@@ -261,10 +275,20 @@ def plot_rolling_sharpe(perf_df, window=12):
     rs_s = rolling_sharpe_series(
         perf_df["sample_excess_return"], window=window)
     rs_lw = rolling_sharpe_series(
-        perf_df["lw_excess_return"],     window=window)
+        perf_df["lw_excess_return"], window=window)
+    rs_ew = rolling_sharpe_series(
+        perf_df["ew_excess_return"], window=window)
+    rs_vw = rolling_sharpe_series(
+        perf_df["vw_excess_return"], window=window)
+    rs_pw = rolling_sharpe_series(
+        perf_df["pw_excess_return"], window=window)
+
     plt.figure(figsize=(9, 4))
     plt.plot(perf_df["date"], rs_s,  label="sample")
     plt.plot(perf_df["date"], rs_lw, label="ledoit-wolf")
+    plt.plot(perf_df["date"], rs_ew, label="equal weighted")
+    plt.plot(perf_df["date"], rs_vw, label="value weighted")
+    plt.plot(perf_df["date"], rs_pw, label="price weighted")
     plt.title(f"rolling {window}-month sharpe")
     plt.xlabel("date")
     plt.ylabel("sharpe")
@@ -297,7 +321,7 @@ def plot_turnover_timeseries(turnover_df):
     ax.set_title("turnover by method over time")
     ax.set_xlabel("date")
     ax.set_ylabel("0.5 * sum |Δw|")
-    ax.legend(title="method", ncol=2)
+    ax.legend(title="method", ncol=2, loc='upper left')
     fig.autofmt_xdate()
     plt.tight_layout()
     plt.show()
@@ -315,7 +339,7 @@ def plot_weights_stability_timeseries(weights_stability_df):
     ax.set_title("weight dispersion by method over time")
     ax.set_xlabel("date")
     ax.set_ylabel("weight dispersion (std of portfolio weights)")
-    ax.legend(title="method", ncol=2)
+    ax.legend(title="method", ncol=2, loc='upper left')
     fig.autofmt_xdate()
     plt.tight_layout()
     plt.show()
@@ -541,22 +565,22 @@ def build_topn_indexes(panel: pd.DataFrame, look_back_period: int) -> pd.DataFra
     weights_df   = pd.concat([ew_weights_s, vw_weights_s, pw_weights_s], axis=1)
 
     # Returns
-    ew_returns_s = pd.Series(ew_ret_list, index=idx_rt, name='EW Returns')
-    vw_returns_s = pd.Series(vw_ret_list, index=idx_rt, name='VW Returns')
-    pw_returns_s = pd.Series(pw_ret_list, index=idx_rt, name='PW Returns')
+    ew_returns_s = pd.Series(ew_ret_list, index=idx_rt, name='ew_return')
+    vw_returns_s = pd.Series(vw_ret_list, index=idx_rt, name='vw_return')
+    pw_returns_s = pd.Series(pw_ret_list, index=idx_rt, name='pw_return')
     returns_df   = pd.concat([ew_returns_s, vw_returns_s, pw_returns_s], axis=1)
 
-    returns_df = weights_to_long(weights_df, panel, map_from_t_minus_1=True)
+    weights_df = weights_to_long(weights_df, panel, map_from_t_minus_1=True)
     # # (Optional) Levels, if you want them:
-    # levels_df = pd.DataFrame({
-    #     'EW': ew_level,
-    #     'VW': vw_level,
-    #     'PW': pw_level,
-    # }, index=idx_months)
+    levels_df = pd.DataFrame({
+        'ew_cum': ew_level[1:],
+        'vw_cum': vw_level[1:],
+        'pw_cum': pw_level[1:],
+    }, index=idx_rt)
 
     # print(levels_df.tail())
 
-    return weights_df, returns_df  # or (levels_df, weights_df, returns_df)
+    return weights_df, returns_df, levels_df  # or (levels_df, weights_df, returns_df)
 
 
 def weights_to_long(weights_df: pd.DataFrame, panel: pd.DataFrame,
