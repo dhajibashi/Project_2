@@ -20,22 +20,27 @@ def data_acquisition():
 
     # Get user inputs
     tickers = ticker_input()
-    start_date, end_date = date_input()
+    start_date_eval, months = date_input()
     max_missing = missing_months_input()
     all_data = pd.DataFrame()
 
+    shrcd_list = [10, 11]  # Common shares
+
+    # Since the WRDS CRSP database is updated at the end of each year, 
+    # set the end of df to 12/31 of last year from today's date
+    # today = pd.Timestamp.today()
+    # end_date_df = pd.Timestamp(year=today.year - 1, month=12, day=31)
+
     # Get valid PERMNOs for the tickers
-    permno_list, valid_tickers, first_delisting_date = \
-        get_active_permnos(db, tickers, start_date, end_date, max_missing)
+    permno_list, valid_tickers = get_active_permnos(db, tickers, start_date_eval, max_missing, shrcd_list)
 
     # Get returns data
-    all_data = get_returns(db, permno_list, start_date.strftime('%Y-%m-%d'),
-                           first_delisting_date.strftime('%Y-%m-%d'))
+    all_data = get_returns(db, permno_list, start_date_eval.strftime('%Y-%m-%d'))
     # Get delisting returns data
-    delisting_data = get_delistings(db, permno_list, start_date.strftime('%Y-%m-%d'),
-                                    end_date.strftime('%Y-%m-%d'))
+    # delisting_data = get_delistings(db, permno_list, start_date_eval.strftime('%Y-%m-%d'),
+    #                                 end_date_eval.strftime('%Y-%m-%d'))
     # Add effective returns
-    all_data = add_effective_returns(all_data, delisting_data)
+    # all_data = add_effective_returns(all_data, delisting_data)
 
     permno_to_ticker = dict(zip(permno_list, valid_tickers))
     all_data = all_data.rename(columns=permno_to_ticker)
@@ -47,10 +52,19 @@ def data_acquisition():
     window_size = window_size_input()
 
     # Ask the user for the annual risk-free rate (as a decimal)
-    risk_free_rate = risk_free_rate_input()
+    # risk_free_rate = risk_free_rate_input()
 
-    return all_data, valid_tickers, start_date, end_date, \
-        first_delisting_date, max_weight, min_weight, window_size, risk_free_rate
+    risk_free_rate_series = None
+
+    print(all_data)
+    print(valid_tickers)
+    print(start_date_eval, months)
+    print(max_weight, min_weight)
+    print(window_size)
+    print(risk_free_rate_series)
+
+    return all_data, valid_tickers, start_date_eval, months, \
+        max_weight, min_weight, window_size, risk_free_rate_series
 
 
 def db_connect():
@@ -82,13 +96,12 @@ def ticker_input():
 def date_input():
     """
     Prompt for a start date (YYYY-MM-DD) and number of months (positive int),
-    then return (start_date, end_date).
+    then return (start_date, number of months).
     """
     while True:
         try:
             start_str = input("Enter the start date (YYYY-MM-DD): ").strip()
-            months_str = input(
-                "Enter the number of months for the analysis: ").strip()
+            months_str = input("Enter the number of months for the analysis: ").strip()
 
             # strict date parsing (won't accept "0")
             start_date = dt.strptime(start_str, "%Y-%m-%d")
@@ -98,15 +111,13 @@ def date_input():
                 print("Number of months must be a positive integer. Please try again.")
                 continue
 
-            end_date = pd.Timestamp(start_date) + \
-                pd.DateOffset(months=num_months-1)
+            end_date = pd.Timestamp(start_date) + pd.DateOffset(months=num_months-1)
             print(
                 f"Date range: {pd.Timestamp(start_date).date()} to {end_date.date()}")
-            return pd.Timestamp(start_date), end_date
+            return pd.Timestamp(start_date), months_str
 
         except ValueError:
-            print(
-                "Invalid input. Use YYYY-MM-DD for the date and a positive integer for months.")
+            print("Invalid input. Use YYYY-MM-DD for the date and a positive integer for months.")
 
 
 def missing_months_input():
@@ -125,43 +136,41 @@ def missing_months_input():
     return max_missing
 
 
-def get_active_permnos(db, tickers: list, start_date: pd.Timestamp, end_date: pd.Timestamp,
-                       max_missing: int) -> list:
+def get_active_permnos(db, tickers: list, start_date: pd.Timestamp, max_missing: int, shrcd_list: list):
+    """
+    Get active PERMNOs for the given tickers and date range.
+    """
     permno_list = []
     valid_tickers = []
-    date_of_delisting = []
+    # date_of_delisting = []
 
     for ticker in tickers:
         # If there is no valid PERMNO found, ask the user for a replacement ticker
-        permno, delisting_date = pick_permno_for_ticker(
-            db, ticker, start_date, end_date, max_missing)
+        permno = pick_permno_for_ticker(db, ticker, start_date, max_missing, shrcd_list)
         while permno is None:
             print(f"No valid PERMNO found for ticker {ticker}.")
             ticker = input(
                 "Please enter a replacement ticker: ").strip().upper()
-            permno, delisting_date = pick_permno_for_ticker(
-                db, ticker, start_date, end_date, max_missing)
+            permno = pick_permno_for_ticker(db, ticker, start_date, max_missing, shrcd_list)
         permno_list.append(permno)
         valid_tickers.append(ticker)
-        date_of_delisting.append(delisting_date)
+        # date_of_delisting.append(delisting_date)
 
     print(f"Final tickers used: {valid_tickers}")
     print(f"Corresponding PERMNOs: {permno_list}")
-    print(
-        f"Collecting data until first delisting date (if any): {max(date_of_delisting)}")
+    # print(f"Collecting data until first delisting date (if any): {max(date_of_delisting)}")
 
-    return permno_list, valid_tickers, max(date_of_delisting)
+    return permno_list, valid_tickers
 
 
-def pick_permno_for_ticker(db, ticker: str, start_date: pd.Timestamp,
-                           end_date: pd.Timestamp, max_missing: int) -> int | None:
+def pick_permno_for_ticker(db, ticker: str, start_date: pd.Timestamp, max_missing: int, \
+                           shrcd_list: list) -> int | None:
     """
     Given a ticker and a date, pick the most appropriate PERMNO.
 
     Criteria (in order):
-    1) Active on the start_date and end_date (namedt <= start_date & end_date <= nameendt or nameendt is null)
-    2) If multiple, pick the one with the longest active history (namedt earliest)
-    3) If still multiple, pick the one with the highest average daily trading volume over the past year
+    1) Active on the start_date
+    2) If multiple, pick the one with the namedt earliest
 
     Returns
     -------
@@ -171,7 +180,9 @@ def pick_permno_for_ticker(db, ticker: str, start_date: pd.Timestamp,
     SELECT
         n.permno,
         n.namedt,
-        n.nameendt
+        n.nameendt,
+        n.exchcd,
+        n.shrcd
     FROM crsp.msenames AS n
     WHERE n.ticker = '{ticker}'
     ORDER BY n.namedt;
@@ -179,70 +190,98 @@ def pick_permno_for_ticker(db, ticker: str, start_date: pd.Timestamp,
     df = db.raw_sql(q)
 
     df['namedt'] = pd.to_datetime(df['namedt'])
-    df['nameendt'] = pd.to_datetime(df['nameendt'])
-    df['nameendt'] = df['nameendt'].fillna(pd.Timestamp.max)
-
-    df = collapse_name_ranges(df)
+    # df['nameendt'] = pd.to_datetime(df['nameendt'])
+    # df['nameendt'] = df['nameendt'].fillna(pd.Timestamp.max)
 
     if df.empty:
-        return None, None
+        return None
 
+    df = df[df['shrcd'].isin(shrcd_list)]
+
+    if df.empty:
+        # Nothing in the allowed share codes
+        print(f"Ticker {ticker} has no active PERMNOs in common share classes as of {start_date.date()}.")
+        return None
+    
+    df = collapse_name_ranges(df)
+
+    # end_date = pd.Timestamp.today()
     # 1) Exact coverage: [namedt, nameendt] fully covers [start_date, end_date]
-    mask_full = (df['namedt'] <= start_date) & (df['nameendt'] >= end_date)
-    if mask_full.any():
-        if len(df[mask_full]) == 1:
-            return int(df.loc[mask_full, 'permno'].iloc[0]), df.loc[mask_full, 'nameendt'].iloc[0]
-        else:
-            df = df[mask_full]
-            # most current first
-            df = df.sort_values(by='nameendt', ascending=False)
-            # If still multiple, pick the one which is most current, i.e. with the latest nameendt
-            print('Multiple candidates found. Picking the most current one.')
-            print('Picked PERMNO:', df.iloc[0]['permno'])
-            print('Candidates were:')
-            print(df)
-            return int(df.iloc[0]['permno']), df.iloc[0]['nameendt']
+    # mask_full = (df['namedt'] <= start_date) & (df['nameendt'] >= end_date)
+    active = df[df['namedt'] <= start_date]
+    if active.empty:
+        print(f"Ticker {ticker} has no active PERMNOs as of {start_date.date()}.")
+        return None
 
-    # 2) Missing months before the window (namedt > start_date)
-    after_start = df['namedt'] > start_date
-    months_before = np.where(
-        after_start,
-        (df['namedt'].dt.year - start_date.year) * 12
-        + (df['namedt'].dt.month - start_date.month)
-        # ceil if partial month
-        + (df['namedt'].dt.day > start_date.day).astype(int),
-        0
-    )
+    # iterate rows so we can grab shrcd for the same permno
+    for _, row in active.iterrows():
+        permno = int(row['permno'])
 
-    # 3) Missing months after the window (nameendt < end_date)
-    before_end = df['nameendt'] < end_date
-    months_after = np.where(
-        before_end,
-        (end_date.year - df['nameendt'].dt.year) * 12
-        + (end_date.month - df['nameendt'].dt.month)
-        # ceil if partial month
-        + (end_date.day > df['nameendt'].dt.day).astype(int),
-        0
-    )
+        df1 = get_delistings(db, [permno], start_date.strftime('%Y-%m-%d'))
+        df2 = get_returns(db, [permno], start_date.strftime('%Y-%m-%d'), max_missing)
 
-    total_missing_months = months_before + months_after
+        if df1.empty and (df2 is not None):
+            return permno
+        elif not df1.empty:
+            print('Delisting data found for PERMNO:', permno)
+            print(df1)
+        
+    return None
 
-    mask_tol = total_missing_months <= int(max_missing)
-    if mask_tol.any():
-        if len(df[mask_tol]) == 1:
-            return int(df.loc[mask_tol, 'permno'].iloc[0])
-        else:
-            # choose the row with the smallest total missing months (best match)
-            idx = pd.Series(total_missing_months, index=df.index)[
-                mask_tol].idxmin()
-            print(
-                'Multiple candidates found. Picking PERMNO with the smallest total missing months.')
-            print('Picked PERMNO:', df.loc[idx, 'permno'])
-            print('Candidates were:')
-            print(df[mask_tol])
-            return int(df.loc[idx, 'permno']), df.loc[idx, 'nameendt']
 
-    return None, None
+    # if mask_full.any():
+    #     if len(df[mask_full]) == 1:
+    #         return int(df.loc[mask_full, 'permno'].iloc[0]), df.loc[mask_full, 'nameendt'].iloc[0]
+    #     else:
+    #         df = df[mask_full]
+    #         # most current first
+    #         df = df.sort_values(by='nameendt', ascending=False)
+    #         # If still multiple, pick the one which is most current, i.e. with the latest nameendt
+    #         print('Multiple candidates found. Picking the most current one.')
+    #         print('Picked PERMNO:', df.iloc[0]['permno'])
+    #         print('Candidates were:')
+    #         print(df)
+    #         return int(df.iloc[0]['permno']), df.iloc[0]['nameendt']
+
+    # # 2) Missing months before the window (namedt > start_date)
+    # after_start = df['namedt'] > start_date
+    # months_before = np.where(
+    #     after_start,
+    #     (df['namedt'].dt.year - start_date.year) * 12
+    #     + (df['namedt'].dt.month - start_date.month)
+    #     # ceil if partial month
+    #     + (df['namedt'].dt.day > start_date.day).astype(int),
+    #     0
+    # )
+
+    # # 3) Missing months after the window (nameendt < end_date)
+    # before_end = df['nameendt'] < end_date
+    # months_after = np.where(
+    #     before_end,
+    #     (end_date.year - df['nameendt'].dt.year) * 12
+    #     + (end_date.month - df['nameendt'].dt.month)
+    #     # ceil if partial month
+    #     + (end_date.day > df['nameendt'].dt.day).astype(int),
+    #     0
+    # )
+
+    # total_missing_months = months_before + months_after
+
+    # mask_tol = total_missing_months <= int(max_missing)
+    # if mask_tol.any():
+    #     if len(df[mask_tol]) == 1:
+    #         return int(df.loc[mask_tol, 'permno'].iloc[0])
+    #     else:
+    #         # choose the row with the smallest total missing months (best match)
+    #         idx = pd.Series(total_missing_months, index=df.index)[
+    #             mask_tol].idxmin()
+    #         print(
+    #             'Multiple candidates found. Picking PERMNO with the smallest total missing months.')
+    #         print('Picked PERMNO:', df.loc[idx, 'permno'])
+    #         print('Candidates were:')
+    #         print(df[mask_tol])
+    #         return int(df.loc[idx, 'permno']), df.loc[idx, 'nameendt']
+
 
 
 def collapse_name_ranges(df: pd.DataFrame) -> pd.DataFrame:
@@ -283,7 +322,7 @@ def collapse_name_ranges(df: pd.DataFrame) -> pd.DataFrame:
     return merged[['permno', 'namedt', 'nameendt']]
 
 
-def get_returns(df_conn, permno_list: list, start: str, end: str) -> pd.DataFrame:
+def get_returns(df_conn, permno_list: list, start: str, max_missing=None) -> pd.DataFrame:
     """
     Wide monthly returns: index=date (Timestamp), columns=permno (int), values=ret (float).
     Missing/non-numeric RET are filled with 0.0 (policy choice).
@@ -296,7 +335,7 @@ def get_returns(df_conn, permno_list: list, start: str, end: str) -> pd.DataFram
         SELECT permno, date, ret
         FROM crsp.msf
         WHERE permno IN ({','.join(map(str, permno_list))})
-          AND date BETWEEN '{start}' AND '{end}'
+          AND date >= '{start}'
         ORDER BY permno, date;
     """
     d = df_conn.raw_sql(q)
@@ -311,6 +350,10 @@ def get_returns(df_conn, permno_list: list, start: str, end: str) -> pd.DataFram
         print(
             f"Warning: {n_missing} missing returns coerced to 0.0 across {d['permno'].nunique()} PERMNO(s).")
         d['ret'] = d['ret'].fillna(0.0)
+    
+    if max_missing is not None and n_missing > max_missing:
+        print(f"Warning: Number of missing returns ({n_missing}) exceeds the allowed maximum ({max_missing}).")
+        return None
 
     wide = (
         d.pivot(index='date', columns='permno', values='ret')
@@ -321,7 +364,7 @@ def get_returns(df_conn, permno_list: list, start: str, end: str) -> pd.DataFram
     return wide
 
 
-def get_delistings(db, permno_list: list, start: str, end: str) -> pd.DataFrame:
+def get_delistings(db, permno_list: list, start: str) -> pd.DataFrame:
     """
     Delisting returns aligned to month-end for merging with monthly CRSP returns.
     Returns long DataFrame with columns: permno (int), date (Timestamp month-end), dlret (float).
@@ -334,7 +377,7 @@ def get_delistings(db, permno_list: list, start: str, end: str) -> pd.DataFrame:
         SELECT permno, dlstdt, dlret
         FROM crsp.msedelist
         WHERE permno IN ({','.join(map(str, permno_list))})
-          AND dlstdt BETWEEN '{start}' AND '{end}'
+          AND dlstdt >= '{start}'
           AND dlret IS NOT NULL
         ORDER BY permno, dlstdt;
     """
@@ -342,8 +385,7 @@ def get_delistings(db, permno_list: list, start: str, end: str) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame(columns=['permno', 'date', 'dlret'])
 
-    df['date'] = pd.to_datetime(df['dlstdt']) + \
-        MonthEnd(0)  # align to month-end
+    df['date'] = pd.to_datetime(df['dlstdt']) + MonthEnd(0)  # align to month-end
     df['dlret'] = pd.to_numeric(df['dlret'], errors='coerce')
     df = df[['permno', 'date', 'dlret']].dropna(subset=['dlret'])
     df['permno'] = df['permno'].astype(int)
