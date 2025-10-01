@@ -1,6 +1,10 @@
 import numpy as np
 import pandas as pd
 import cvxpy as cp
+import os
+import sys
+import math
+from copy import deepcopy
 from sklearn.covariance import LedoitWolf
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
@@ -30,321 +34,106 @@ import matplotlib.dates as mdates
 # Cumulative return curves.
 # Turnover distributions and time series plots.
 
-
-def sample_covariance_matrix(returns, start_date, end_date):
-    """
-    Calculate the sample covariance matrix of asset returns.
-
-    Parameters:
-    returns (pd.DataFrame): DataFrame where each column represents an asset's returns over time.
-    start_date (pd.Timestamp): Start date for the analysis period.
-    end_date (pd.Timestamp): End date for the analysis period.
-
-    Returns:
-    pd.DataFrame: Sample covariance matrix of the asset returns.
-    """
-    # Filter returns for the specified date range
-    filtered_returns = returns.loc[start_date:end_date]
-    mean = filtered_returns.mean()
-    # print("Mean returns:")
-    # print(mean)
-
-    # Subtract the mean return from each asset's returns
-    filtered_returns = filtered_returns - mean
-    # print("Centered returns:")
-    # print(filtered_returns)
-
-    return filtered_returns.cov()
+def returns_to_excess(returns: pd.DataFrame, rf_df: pd.DataFrame | pd.Series) -> pd.DataFrame:
+    # If rf_df is a 1-col DataFrame, squeeze to a Series
+    out = deepcopy(returns)
+    rf = rf_df.squeeze() if isinstance(rf_df, pd.DataFrame) else rf_df
+    # Align by index (in case one has extra/missing dates)
+    rf = rf.reindex(out.index)
+    # Vectorized row-wise subtraction across all columns
+    out = out.sub(rf, axis=0)
+    return out
 
 
-def ledoit_wolf_shrinkage(returns, start_date, end_date):
-    """
-    Apply Ledoit-Wolf shrinkage to estimate a more robust covariance matrix.
-
-    Parameters:
-    returns (pd.DataFrame): DataFrame where each column represents an asset's returns over time.
-
-    Returns:
-    pd.DataFrame: Shrunk covariance matrix of the asset returns.
-    """
-    filtered_returns = returns.loc[start_date:end_date]
-    mean = filtered_returns.mean()
-
-    filtered_returns = filtered_returns - mean
-
-    lw = LedoitWolf()
-    lw.fit(filtered_returns)
-    shrunk_cov = lw.covariance_
-
-    return pd.DataFrame(shrunk_cov, index=returns.columns, columns=returns.columns)
+def sample_covariance(ret_window):
+    return ret_window.cov().values
 
 
-def minimum_variance_optimization(cov_matrix, max_weight, min_weight):
-    """
-    Perform minimum variance portfolio optimization with optional weight constraints.
+def ledoit_wolf_covariance(ret_window):
+    lw = LedoitWolf().fit(ret_window.values)
+    return lw.covariance_
 
-    Parameters:
-    cov_matrix (pd.DataFrame): Covariance matrix of asset returns.
-    max_weight (float, optional): Maximum weight constraint for each asset. Defaults to None.
-    min_weight (float, optional): Minimum weight constraint for each asset. Defaults to None.
 
-    Returns:
-    np.ndarray: Optimal weights for the minimum variance portfolio.
-    """
+def gmv_weights(cov_matrix, lower_bound = None, upper_bound = None):
     n = cov_matrix.shape[0]
     w = cp.Variable(n)
-
-    # Objective: Minimize portfolio variance
-    objective = cp.Minimize(cp.quad_form(w, cov_matrix.values))
-
-    # Constraints: Weights sum to 1
+    objective = cp.Minimize(cp.quad_form(w, cov_matrix))
     constraints = [cp.sum(w) == 1]
-
     # Add maximum weight constraints if specified
-    if max_weight is not None:
-        constraints.append(w <= max_weight)
-
+    if upper_bound is not None:
+        constraints.append(w <= upper_bound)
     # Add minimum weight constraints if specified
-    if min_weight is not None:
-        constraints.append(w >= min_weight)
-
-    # Define and solve the problem
+    if lower_bound is not None:
+        constraints.append(w >= lower_bound)
     prob = cp.Problem(objective, constraints)
-    prob.solve()
-
-    return w.value
-
-
-def mvo_sample_covmat(df, start_date, end_date, max_weight, min_weight):
-
-    covmat = sample_covariance_matrix(df, start_date, end_date)
-    # print("Sample covariance matrix:")
-    # print(covmat)
-
-    mvo_sample = minimum_variance_optimization(covmat, max_weight, min_weight)
-    mvo_sample = pd.Series(mvo_sample, index=df.columns)
-    # Order the tickers by alphabetical order for easier comparison
-    print("Minimum variance optimization (sample covariance):")
-    print(mvo_sample)
-    print("Sum of weights:", np.round(mvo_sample.sum(), 2))
-
-    print("Next month returns:")
-    next_month_returns = returns_calculation(df, mvo_sample, end_date)
-    print(next_month_returns)
+    prob.solve(solver = cp.OSQP, verbose = False)
+    return np.array(w.value).ravel()
 
 
-def mvo_lwo_covmat(df, start_date, end_date, max_weight, min_weight):
-    lw_covmat = ledoit_wolf_shrinkage(df, start_date, end_date)
-    # print("Ledoit-Wolf shrunk covariance matrix:")
-    # print(lw_covmat)
+def backtest_minvar(raw_returns_wide, excess_returns_wide, window_months = 36, \
+                    lower_bound = None, upper_bound = None):
+    dates = excess_returns_wide.index
+    tickers = list(excess_returns_wide.columns)
+    perf_rows, weight_rows = [], []
 
-    mvo_lw = minimum_variance_optimization(lw_covmat, max_weight, min_weight)
-    mvo_lw = pd.Series(mvo_lw, index=df.columns)
-    # Order the tickers by alphabetical order for easier comparison
-    print("Minimum variance optimization (Ledoit-Wolf covariance):")
-    print(mvo_lw)
-    print("Sum of weights:", np.round(mvo_lw.sum(), 2))
+    for t in range(window_months, len(dates) - 1):
+        est_window = excess_returns_wide.iloc[t - window_months : t]
+        next_raw_ret = raw_returns_wide.iloc[t + 1].values
+        next_excess_ret = excess_returns_wide.iloc[t + 1].values
 
-    print("Next month returns:")
-    next_month_returns = returns_calculation(df, mvo_lw, end_date)
-    print(next_month_returns)
+        s_cov = sample_covariance(est_window)
+        lw_cov = ledoit_wolf_covariance(est_window)
 
+        w_sample = gmv_weights(s_cov, lower_bound, upper_bound)
+        w_lw     = gmv_weights(lw_cov, lower_bound, upper_bound)
 
-def rolling_window_optimization(returns, window_size, start_date, end_date,
-                                first_delisting_date, max_weight=None, min_weight=None):
-    """
-    Perform rolling-window minimum variance optimization using both
-    sample covariance and Ledoit-Wolf covariance.
+        perf_rows.append({
+            "date": dates[t + 1],
+            "sample_return": np.dot(w_sample, next_raw_ret),
+            "lw_return": np.dot(w_lw, next_raw_ret),
+            "sample_excess_return": np.dot(w_sample, next_excess_ret),
+            "lw_excess_return": np.dot(w_lw, next_excess_ret)
+        })
 
-    Returns
-    -------
-    (mvo_sample_weights, mvo_sample_returns, mvo_lvo_weights, mvo_lvo_returns)
-        Each weights DataFrame has index = window end date, columns = tickers.
-        Each returns DataFrame has a single column 'portfolio_return'
-        and index = the *next* month after the window end.
-    """
-    if not isinstance(returns.index, pd.DatetimeIndex):
-        raise TypeError("returns must have a DatetimeIndex.")
+        for i, tic in enumerate(tickers):
+            weight_rows.append({"date": dates[t], "method": "sample", "ticker": tic, "weight": w_sample[i]})
+            weight_rows.append({"date": dates[t], "method": "ledoit_wolf", "ticker": tic, "weight": w_lw[i]})
 
-    effective_end = returns.index[-1]
-    effective_start = returns.index[0]
-
-    # Restrict sample
-    sample = returns.loc[effective_start:effective_end].copy()
-    if sample.shape[0] < window_size + 1:
-        print(sample.shape, window_size)
-        # need at least window_size rows plus 1 future row for realized next-month return
-        print("Not enough data for the rolling window optimization.")
-        empty_w = pd.DataFrame(columns=returns.columns)
-        empty_r = pd.DataFrame(columns=["portfolio_return"])
-        return empty_w.copy(), empty_r.copy(), empty_w.copy(), empty_r.copy()
-
-    idx = sample.index
-    nrows = len(idx)
-
-    # Collectors
-    mvo_sample_weights = pd.DataFrame(columns=returns.columns)
-    mvo_sample_returns = pd.DataFrame(columns=["portfolio_return"])
-    mvo_lvo_weights = pd.DataFrame(columns=returns.columns)
-    mvo_lvo_returns = pd.DataFrame(columns=["portfolio_return"])
-
-    # We will end each window at position e (inclusive); need a next row at e+1 for realized return.
-    # e runs from window_size-1 to nrows-2 (so that e+1 exists).
-    for e in range(window_size - 1, nrows - 1):
-        s = e - window_size + 1
-        start_date_window = idx[s]
-        end_date_window = idx[e]
-
-        # --- Sample covariance path ---
-        covmat = sample_covariance_matrix(
-            returns, start_date_window, end_date_window)
-        mvo_sample = minimum_variance_optimization(
-            covmat, max_weight, min_weight)
-        mvo_sample = pd.Series(
-            mvo_sample, index=returns.columns, name=end_date_window)
-
-        # Save weights (row = window end)
-        mvo_sample_weights.loc[end_date_window] = mvo_sample
-
-        # Realized next-month return
-        next_month_return = returns_calculation(
-            returns, mvo_sample, end_date_window)  # 1-element Series
-        # ensure the target exists with the right dtype (do this once before the loop)
-        if "portfolio_return" not in mvo_sample_returns.columns:
-            mvo_sample_returns["portfolio_return"] = pd.Series(dtype=float)
-
-        # next_month_return is a 1-element Series indexed by the next date
-        for dt, val in next_month_return.items():
-            mvo_sample_returns.loc[pd.Timestamp(
-                dt), "portfolio_return"] = float(val)
-
-        # --- Ledoit–Wolf path ---
-        lw_covmat = ledoit_wolf_shrinkage(
-            returns, start_date_window, end_date_window)
-        mvo_lw = minimum_variance_optimization(
-            lw_covmat, max_weight, min_weight)
-        mvo_lw = pd.Series(mvo_lw, index=returns.columns, name=end_date_window)
-
-        mvo_lvo_weights.loc[end_date_window] = mvo_lw
-
-        next_month_return_lw = returns_calculation(
-            returns, mvo_lw, end_date_window)
-        # ensure the target exists with the right dtype (do this once before the loop)
-        if "portfolio_return" not in mvo_lvo_returns.columns:
-            mvo_lvo_returns["portfolio_return"] = pd.Series(dtype=float)
-
-        # next_month_return is a 1-element Series indexed by the next date
-        for dt, val in next_month_return_lw.items():
-            mvo_lvo_returns.loc[pd.Timestamp(
-                dt), "portfolio_return"] = float(val)
-
-    # Ensure proper dtypes/index names
-    mvo_sample_weights.index.name = "date"
-    mvo_lvo_weights.index.name = "date"
-    mvo_sample_returns.index.name = "date"
-    mvo_lvo_returns.index.name = "date"
-
-    return mvo_sample_weights, mvo_sample_returns, mvo_lvo_weights, mvo_lvo_returns
+    perf_df = pd.DataFrame(perf_rows).sort_values("date").reset_index(drop = True)
+    perf_df["sample_cum"] = (1 + perf_df["sample_return"]).cumprod()
+    perf_df["lw_cum"]     = (1 + perf_df["lw_return"]).cumprod()
+    weights_df = pd.DataFrame(weight_rows)
+    return perf_df, weights_df
 
 
-def returns_calculation(df: pd.DataFrame, weights: pd.Series, end_date: str | pd.Timestamp) -> pd.Series:
-    """
-    Compute the portfolio return for the month immediately AFTER end_date.
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        Monthly returns. Index = DatetimeIndex (ascending). Columns = assets.
-    weights : pd.Series
-        Portfolio weights indexed by the same asset names as df.columns.
-        Missing assets are treated as 0.
-    end_date : str or Timestamp
-        'YYYY-MM-DD' (or Timestamp). We select the last date <= end_date, then use the next row.
-
-    Returns
-    -------
-    pd.Series
-        One-element series: index is the next month’s date, value is the portfolio return.
-    """
-    if not isinstance(df.index, pd.DatetimeIndex):
-        raise TypeError("df index must be a DatetimeIndex.")
-    if df.empty:
-        raise ValueError("df is empty.")
-
-    # Ensure ascending order
-    if not df.index.is_monotonic_increasing:
-        df = df.sort_index()
-
-    end_ts = pd.to_datetime(end_date)
-
-    # Find the position of the last index value <= end_ts
-    pos = df.index.get_indexer([end_ts], method="pad")[0]
-    if pos == -1:
-        raise ValueError("end_date is before the first date in df.")
-
-    next_pos = pos + 1
-    if next_pos >= len(df):
-        raise ValueError(
-            "End date is too close to the end to get the next month's return.")
-
-    next_date = df.index[next_pos]
-    # Series of per-asset returns at next month
-    r_next = df.iloc[next_pos]
-
-    # Align weights to columns; treat missing weights as 0
-    w = weights.reindex(df.columns).fillna(0.0)
-
-    # Dot product = portfolio return
-    port_ret = float(r_next.dot(w))
-
-    return pd.Series([port_ret], index=[next_date], name="portfolio_return")
+def summarize_performance(perf_df):
+    # summarize performance
+    summary = []
+    for label, col1, col2 in [("sample", "sample_return", "sample_excess_return"), \
+                              ("ledoit_wolf", "lw_return", "lw_excess_return")]:
+        ann_mean, ann_std = annualize_mean_std(perf_df[col1])
+        sr = sharpe_ratio(perf_df[col2])
+        summary.append({"strategy": label, "annual_return": ann_mean,
+                        "annual_volatility": ann_std, "sharpe_ratio": sr})
+    summary_df = pd.DataFrame(summary)
+    return summary_df
 
 
-def summary_statistics(weight_list: pd.DataFrame,
-                       return_list: pd.DataFrame,
-                       rf_yearly: float):
-    """
-    Compute portfolio performance and diagnostics.
+def annualize_mean_std(monthly_returns):
+    mean_monthly = monthly_returns.mean()
+    std_monthly  = monthly_returns.std(ddof = 1)
+    ann_mean = (1 + mean_monthly) ** 12 - 1
+    ann_std  = std_monthly * math.sqrt(12)
+    return ann_mean, ann_std
 
-    Parameters
-    ----------
-    weight_list : pd.DataFrame
-        Rows = dates (ascending), columns = assets, values = weights at each rebalance.
-    return_list : pd.DataFrame or pd.Series
-        Out-of-sample portfolio returns by month. If DataFrame, must contain a column
-        named 'portfolio_return'.
-    rf : float or pd.Series, optional
-        Monthly risk-free rate (scalar or Series indexed by the same dates as returns).
-    """
-    rf_monthly = rf_yearly / 12.0
-    r = return_list.squeeze().astype(float).copy()
 
-    # --- Cumulative returns ---
-    cumulative_returns = (1.0 + r).cumprod()
+def sharpe_ratio(monthly_excess_returns):
+    # monthly_rf = (1 + annual_rf) ** (1/12) - 1
+    # excess = monthly_returns - monthly_rf
+    return (monthly_excess_returns.mean()) / (monthly_excess_returns.std(ddof=1) if monthly_excess_returns.std(ddof=1) != 0 else np.nan)
 
-    # --- Annualized metrics (assume monthly frequency) ---
-    periods_per_year = 12.0
-    n = len(r)
-    if n == 0:
-        annualized_return = np.nan
-        annualized_volatility = np.nan
-        sharpe_ratio = np.nan
-    else:
-        # Geometric annualized return
-        total_return = (1.0 + r).prod()
-        annualized_return = total_return ** (periods_per_year / n) - 1.0
 
-        # Annualized volatility from monthly std
-        monthly_std = r.std(ddof=1)
-        annualized_volatility = monthly_std * np.sqrt(periods_per_year)
-
-        # Sharpe ratio from monthly excess returns
-        excess = (r - rf_monthly).dropna()
-        if len(excess) < 2 or excess.std(ddof=1) == 0:
-            sharpe_ratio = np.nan
-        else:
-            sharpe_ratio = (excess.mean()) / (excess.std(ddof=1))
-
+def turnover_series(weight_list: pd.DataFrame):
     # --- Turnover (per month) ---
     # Turnover ≈ 0.5 * Σ_i |w_t,i − w_{t−1,i}|
     if isinstance(weight_list, pd.DataFrame) and not weight_list.empty:
@@ -356,74 +145,468 @@ def summary_statistics(weight_list: pd.DataFrame,
     else:
         turnover = pd.Series(dtype=float, name="turnover")
 
+    return turnover
+
+
+def weight_stability_series(weight_list: pd.DataFrame):
     # --- Weight stability (cross-sectional std each month) ---
     if isinstance(weight_list, pd.DataFrame) and not weight_list.empty:
         weight_stability = weight_list.std(axis=1)
     else:
         weight_stability = pd.Series(dtype=float, name="weight_stability")
 
-    return (cumulative_returns,
-            float(annualized_return) if pd.notna(
-                annualized_return) else np.nan,
-            float(annualized_volatility) if pd.notna(
-                annualized_volatility) else np.nan,
-            float(sharpe_ratio) if pd.notna(sharpe_ratio) else np.nan,
-            turnover,
-            weight_stability)
+    return weight_stability
+
+# def summary_statistics(weight_list: pd.DataFrame,
+#                        return_list: pd.DataFrame,
+#                        rf_yearly: float):
+#     """
+#     Compute portfolio performance and diagnostics.
+
+#     Parameters
+#     ----------
+#     weight_list : pd.DataFrame
+#         Rows = dates (ascending), columns = assets, values = weights at each rebalance.
+#     return_list : pd.DataFrame or pd.Series
+#         Out-of-sample portfolio returns by month. If DataFrame, must contain a column
+#         named 'portfolio_return'.
+#     rf : float or pd.Series, optional
+#         Monthly risk-free rate (scalar or Series indexed by the same dates as returns).
+#     """
+#     rf_monthly = rf_yearly / 12.0
+#     r = return_list.squeeze().astype(float).copy()
+
+#     # --- Cumulative returns ---
+#     cumulative_returns = (1.0 + r).cumprod()
+
+#     # --- Annualized metrics (assume monthly frequency) ---
+#     periods_per_year = 12.0
+#     n = len(r)
+#     if n == 0:
+#         annualized_return = np.nan
+#         annualized_volatility = np.nan
+#         sharpe_ratio = np.nan
+#     else:
+#         # Geometric annualized return
+#         total_return = (1.0 + r).prod()
+#         annualized_return = total_return ** (periods_per_year / n) - 1.0
+
+#         # Annualized volatility from monthly std
+#         monthly_std = r.std(ddof=1)
+#         annualized_volatility = monthly_std * np.sqrt(periods_per_year)
+
+#         # Sharpe ratio from monthly excess returns
+#         excess = (r - rf_monthly).dropna()
+#         if len(excess) < 2 or excess.std(ddof=1) == 0:
+#             sharpe_ratio = np.nan
+#         else:
+#             sharpe_ratio = (excess.mean()) / (excess.std(ddof=1))
 
 
-def cumulative_returns_plot(cumulative_returns_sample, cumulative_returns_lwo):
-    # ensure datetime-like x
-    x1 = getattr(cumulative_returns_sample.index, "to_timestamp",
-                 lambda: cumulative_returns_sample.index)()
-    x2 = getattr(cumulative_returns_lwo.index, "to_timestamp",
-                 lambda: cumulative_returns_lwo.index)()
 
-    fig, ax = plt.subplots(figsize=(10, 6))
-
-    ax.plot(x1, cumulative_returns_sample.values,
-            label='Cumulative Returns (Sample)')
-    ax.plot(x2, cumulative_returns_lwo.values,
-            label='Cumulative Returns (LWO)')
-
-    ax.set_xlabel('Month')
-    ax.set_ylabel('Cumulative Returns')
-    ax.set_title('Cumulative Returns Over Time')
-    ax.legend()
-    ax.grid(True)
-
-    locator = mdates.AutoDateLocator()
-    formatter = mdates.ConciseDateFormatter(locator)
-    ax.xaxis.set_major_locator(locator)
-    ax.xaxis.set_major_formatter(formatter)
-    fig.autofmt_xdate()  # tilt labels if crowded
-    plt.show()
+#     return (cumulative_returns,
+#             float(annualized_return) if pd.notna(
+#                 annualized_return) else np.nan,
+#             float(annualized_volatility) if pd.notna(
+#                 annualized_volatility) else np.nan,
+#             float(sharpe_ratio) if pd.notna(sharpe_ratio) else np.nan,
+#             turnover,
+#             weight_stability)
 
 
-def turnover_plot(turnover_sample, turnover_lwo):
-    # ensure datetime index (works for DatetimeIndex or PeriodIndex)
-    x1 = getattr(turnover_sample.index, "to_timestamp",
-                 lambda: turnover_sample.index)()
-    x2 = getattr(turnover_lwo.index, "to_timestamp",
-                 lambda: turnover_lwo.index)()
+# def sample_covariance_matrix(returns, start_date, end_date):
+#     """
+#     Calculate the sample covariance matrix of asset returns.
 
-    fig, ax = plt.subplots(figsize=(10, 6))
+#     Parameters:
+#     returns (pd.DataFrame): DataFrame where each column represents an asset's returns over time.
+#     start_date (pd.Timestamp): Start date for the analysis period.
+#     end_date (pd.Timestamp): End date for the analysis period.
 
-    # plot using index dates directly
-    ax.plot(x1, turnover_sample.values, label='Portfolio Turnover (Sample)')
-    ax.plot(x2, turnover_lwo.values, label='Portfolio Turnover (LWO)')
+#     Returns:
+#     pd.DataFrame: Sample covariance matrix of the asset returns.
+#     """
+#     # Filter returns for the specified date range
+#     filtered_returns = returns.loc[start_date:end_date]
+#     mean = filtered_returns.mean()
+#     # print("Mean returns:")
+#     # print(mean)
 
-    ax.set_xlabel('Date')
-    ax.set_ylabel('Turnover')
-    ax.set_title('Portfolio Turnover Over Time')
-    ax.legend()
-    ax.grid(True)
+#     # Subtract the mean return from each asset's returns
+#     filtered_returns = filtered_returns - mean
+#     # print("Centered returns:")
+#     # print(filtered_returns)
 
-    # show only dates on x-axis, nicely formatted
-    locator = mdates.AutoDateLocator()
-    formatter = mdates.ConciseDateFormatter(locator)
-    ax.xaxis.set_major_locator(locator)
-    ax.xaxis.set_major_formatter(formatter)
-    fig.autofmt_xdate()  # tilt labels if crowded
+#     return filtered_returns.cov()
 
-    plt.show()
+
+# def ledoit_wolf_shrinkage(returns, start_date, end_date):
+#     """
+#     Apply Ledoit-Wolf shrinkage to estimate a more robust covariance matrix.
+
+#     Parameters:
+#     returns (pd.DataFrame): DataFrame where each column represents an asset's returns over time.
+
+#     Returns:
+#     pd.DataFrame: Shrunk covariance matrix of the asset returns.
+#     """
+#     filtered_returns = returns.loc[start_date:end_date]
+#     mean = filtered_returns.mean()
+
+#     filtered_returns = filtered_returns - mean
+
+#     lw = LedoitWolf()
+#     lw.fit(filtered_returns)
+#     shrunk_cov = lw.covariance_
+
+#     return pd.DataFrame(shrunk_cov, index=returns.columns, columns=returns.columns)
+
+
+# def minimum_variance_optimization(cov_matrix, max_weight, min_weight):
+#     """
+#     Perform minimum variance portfolio optimization with optional weight constraints.
+
+#     Parameters:
+#     cov_matrix (pd.DataFrame): Covariance matrix of asset returns.
+#     max_weight (float, optional): Maximum weight constraint for each asset. Defaults to None.
+#     min_weight (float, optional): Minimum weight constraint for each asset. Defaults to None.
+
+#     Returns:
+#     np.ndarray: Optimal weights for the minimum variance portfolio.
+#     """
+#     n = cov_matrix.shape[0]
+#     w = cp.Variable(n)
+
+#     # Objective: Minimize portfolio variance
+#     objective = cp.Minimize(cp.quad_form(w, cov_matrix.values))
+
+#     # Constraints: Weights sum to 1
+#     constraints = [cp.sum(w) == 1]
+
+#     # Add maximum weight constraints if specified
+#     if max_weight is not None:
+#         constraints.append(w <= max_weight)
+
+#     # Add minimum weight constraints if specified
+#     if min_weight is not None:
+#         constraints.append(w >= min_weight)
+
+#     # Define and solve the problem
+#     prob = cp.Problem(objective, constraints)
+#     prob.solve()
+
+#     return w.value
+
+
+# def mvo_sample_covmat(df, start_date, end_date, max_weight, min_weight):
+
+#     covmat = sample_covariance_matrix(df, start_date, end_date)
+#     # print("Sample covariance matrix:")
+#     # print(covmat)
+
+#     mvo_sample = minimum_variance_optimization(covmat, max_weight, min_weight)
+#     mvo_sample = pd.Series(mvo_sample, index=df.columns)
+#     # Order the tickers by alphabetical order for easier comparison
+#     print("Minimum variance optimization (sample covariance):")
+#     print(mvo_sample)
+#     print("Sum of weights:", np.round(mvo_sample.sum(), 2))
+
+#     print("Next month returns:")
+#     next_month_returns = returns_calculation(df, mvo_sample, end_date)
+#     print(next_month_returns)
+
+
+# def mvo_lwo_covmat(df, start_date, end_date, max_weight, min_weight):
+#     lw_covmat = ledoit_wolf_shrinkage(df, start_date, end_date)
+#     # print("Ledoit-Wolf shrunk covariance matrix:")
+#     # print(lw_covmat)
+
+#     mvo_lw = minimum_variance_optimization(lw_covmat, max_weight, min_weight)
+#     mvo_lw = pd.Series(mvo_lw, index=df.columns)
+#     # Order the tickers by alphabetical order for easier comparison
+#     print("Minimum variance optimization (Ledoit-Wolf covariance):")
+#     print(mvo_lw)
+#     print("Sum of weights:", np.round(mvo_lw.sum(), 2))
+
+#     print("Next month returns:")
+#     next_month_returns = returns_calculation(df, mvo_lw, end_date)
+#     print(next_month_returns)
+
+
+# def rolling_window_optimization(returns, window_size, start_date, end_date,
+#                                 first_delisting_date, max_weight=None, min_weight=None):
+#     """
+#     Perform rolling-window minimum variance optimization using both
+#     sample covariance and Ledoit-Wolf covariance.
+
+#     Returns
+#     -------
+#     (mvo_sample_weights, mvo_sample_returns, mvo_lvo_weights, mvo_lvo_returns)
+#         Each weights DataFrame has index = window end date, columns = tickers.
+#         Each returns DataFrame has a single column 'portfolio_return'
+#         and index = the *next* month after the window end.
+#     """
+#     if not isinstance(returns.index, pd.DatetimeIndex):
+#         raise TypeError("returns must have a DatetimeIndex.")
+
+#     effective_end = returns.index[-1]
+#     effective_start = returns.index[0]
+
+#     # Restrict sample
+#     sample = returns.loc[effective_start:effective_end].copy()
+#     if sample.shape[0] < window_size + 1:
+#         print(sample.shape, window_size)
+#         # need at least window_size rows plus 1 future row for realized next-month return
+#         print("Not enough data for the rolling window optimization.")
+#         empty_w = pd.DataFrame(columns=returns.columns)
+#         empty_r = pd.DataFrame(columns=["portfolio_return"])
+#         return empty_w.copy(), empty_r.copy(), empty_w.copy(), empty_r.copy()
+
+#     idx = sample.index
+#     nrows = len(idx)
+
+#     # Collectors
+#     mvo_sample_weights = pd.DataFrame(columns=returns.columns)
+#     mvo_sample_returns = pd.DataFrame(columns=["portfolio_return"])
+#     mvo_lvo_weights = pd.DataFrame(columns=returns.columns)
+#     mvo_lvo_returns = pd.DataFrame(columns=["portfolio_return"])
+
+#     # We will end each window at position e (inclusive); need a next row at e+1 for realized return.
+#     # e runs from window_size-1 to nrows-2 (so that e+1 exists).
+#     for e in range(window_size - 1, nrows - 1):
+#         s = e - window_size + 1
+#         start_date_window = idx[s]
+#         end_date_window = idx[e]
+
+#         # --- Sample covariance path ---
+#         covmat = sample_covariance_matrix(
+#             returns, start_date_window, end_date_window)
+#         mvo_sample = minimum_variance_optimization(
+#             covmat, max_weight, min_weight)
+#         mvo_sample = pd.Series(
+#             mvo_sample, index=returns.columns, name=end_date_window)
+
+#         # Save weights (row = window end)
+#         mvo_sample_weights.loc[end_date_window] = mvo_sample
+
+#         # Realized next-month return
+#         next_month_return = returns_calculation(
+#             returns, mvo_sample, end_date_window)  # 1-element Series
+#         # ensure the target exists with the right dtype (do this once before the loop)
+#         if "portfolio_return" not in mvo_sample_returns.columns:
+#             mvo_sample_returns["portfolio_return"] = pd.Series(dtype=float)
+
+#         # next_month_return is a 1-element Series indexed by the next date
+#         for dt, val in next_month_return.items():
+#             mvo_sample_returns.loc[pd.Timestamp(
+#                 dt), "portfolio_return"] = float(val)
+
+#         # --- Ledoit–Wolf path ---
+#         lw_covmat = ledoit_wolf_shrinkage(
+#             returns, start_date_window, end_date_window)
+#         mvo_lw = minimum_variance_optimization(
+#             lw_covmat, max_weight, min_weight)
+#         mvo_lw = pd.Series(mvo_lw, index=returns.columns, name=end_date_window)
+
+#         mvo_lvo_weights.loc[end_date_window] = mvo_lw
+
+#         next_month_return_lw = returns_calculation(
+#             returns, mvo_lw, end_date_window)
+#         # ensure the target exists with the right dtype (do this once before the loop)
+#         if "portfolio_return" not in mvo_lvo_returns.columns:
+#             mvo_lvo_returns["portfolio_return"] = pd.Series(dtype=float)
+
+#         # next_month_return is a 1-element Series indexed by the next date
+#         for dt, val in next_month_return_lw.items():
+#             mvo_lvo_returns.loc[pd.Timestamp(
+#                 dt), "portfolio_return"] = float(val)
+
+#     # Ensure proper dtypes/index names
+#     mvo_sample_weights.index.name = "date"
+#     mvo_lvo_weights.index.name = "date"
+#     mvo_sample_returns.index.name = "date"
+#     mvo_lvo_returns.index.name = "date"
+
+#     return mvo_sample_weights, mvo_sample_returns, mvo_lvo_weights, mvo_lvo_returns
+
+
+# def returns_calculation(df: pd.DataFrame, weights: pd.Series, end_date: str | pd.Timestamp) -> pd.Series:
+#     """
+#     Compute the portfolio return for the month immediately AFTER end_date.
+
+#     Parameters
+#     ----------
+#     df : pd.DataFrame
+#         Monthly returns. Index = DatetimeIndex (ascending). Columns = assets.
+#     weights : pd.Series
+#         Portfolio weights indexed by the same asset names as df.columns.
+#         Missing assets are treated as 0.
+#     end_date : str or Timestamp
+#         'YYYY-MM-DD' (or Timestamp). We select the last date <= end_date, then use the next row.
+
+#     Returns
+#     -------
+#     pd.Series
+#         One-element series: index is the next month’s date, value is the portfolio return.
+#     """
+#     if not isinstance(df.index, pd.DatetimeIndex):
+#         raise TypeError("df index must be a DatetimeIndex.")
+#     if df.empty:
+#         raise ValueError("df is empty.")
+
+#     # Ensure ascending order
+#     if not df.index.is_monotonic_increasing:
+#         df = df.sort_index()
+
+#     end_ts = pd.to_datetime(end_date)
+
+#     # Find the position of the last index value <= end_ts
+#     pos = df.index.get_indexer([end_ts], method="pad")[0]
+#     if pos == -1:
+#         raise ValueError("end_date is before the first date in df.")
+
+#     next_pos = pos + 1
+#     if next_pos >= len(df):
+#         raise ValueError(
+#             "End date is too close to the end to get the next month's return.")
+
+#     next_date = df.index[next_pos]
+#     # Series of per-asset returns at next month
+#     r_next = df.iloc[next_pos]
+
+#     # Align weights to columns; treat missing weights as 0
+#     w = weights.reindex(df.columns).fillna(0.0)
+
+#     # Dot product = portfolio return
+#     port_ret = float(r_next.dot(w))
+
+#     return pd.Series([port_ret], index=[next_date], name="portfolio_return")
+
+
+# def summary_statistics(weight_list: pd.DataFrame,
+#                        return_list: pd.DataFrame,
+#                        rf_yearly: float):
+#     """
+#     Compute portfolio performance and diagnostics.
+
+#     Parameters
+#     ----------
+#     weight_list : pd.DataFrame
+#         Rows = dates (ascending), columns = assets, values = weights at each rebalance.
+#     return_list : pd.DataFrame or pd.Series
+#         Out-of-sample portfolio returns by month. If DataFrame, must contain a column
+#         named 'portfolio_return'.
+#     rf : float or pd.Series, optional
+#         Monthly risk-free rate (scalar or Series indexed by the same dates as returns).
+#     """
+#     rf_monthly = rf_yearly / 12.0
+#     r = return_list.squeeze().astype(float).copy()
+
+#     # --- Cumulative returns ---
+#     cumulative_returns = (1.0 + r).cumprod()
+
+#     # --- Annualized metrics (assume monthly frequency) ---
+#     periods_per_year = 12.0
+#     n = len(r)
+#     if n == 0:
+#         annualized_return = np.nan
+#         annualized_volatility = np.nan
+#         sharpe_ratio = np.nan
+#     else:
+#         # Geometric annualized return
+#         total_return = (1.0 + r).prod()
+#         annualized_return = total_return ** (periods_per_year / n) - 1.0
+
+#         # Annualized volatility from monthly std
+#         monthly_std = r.std(ddof=1)
+#         annualized_volatility = monthly_std * np.sqrt(periods_per_year)
+
+#         # Sharpe ratio from monthly excess returns
+#         excess = (r - rf_monthly).dropna()
+#         if len(excess) < 2 or excess.std(ddof=1) == 0:
+#             sharpe_ratio = np.nan
+#         else:
+#             sharpe_ratio = (excess.mean()) / (excess.std(ddof=1))
+
+#     # --- Turnover (per month) ---
+#     # Turnover ≈ 0.5 * Σ_i |w_t,i − w_{t−1,i}|
+#     if isinstance(weight_list, pd.DataFrame) and not weight_list.empty:
+#         W = weight_list.sort_index()
+#         dW = W.diff().abs()
+#         turnover = 0.5 * dW.sum(axis=1)
+#         turnover = turnover.iloc[1:]  # drop first (NaN) period
+#         turnover.name = "turnover"
+#     else:
+#         turnover = pd.Series(dtype=float, name="turnover")
+
+#     # --- Weight stability (cross-sectional std each month) ---
+#     if isinstance(weight_list, pd.DataFrame) and not weight_list.empty:
+#         weight_stability = weight_list.std(axis=1)
+#     else:
+#         weight_stability = pd.Series(dtype=float, name="weight_stability")
+
+#     return (cumulative_returns,
+#             float(annualized_return) if pd.notna(
+#                 annualized_return) else np.nan,
+#             float(annualized_volatility) if pd.notna(
+#                 annualized_volatility) else np.nan,
+#             float(sharpe_ratio) if pd.notna(sharpe_ratio) else np.nan,
+#             turnover,
+#             weight_stability)
+
+
+# def cumulative_returns_plot(cumulative_returns_sample, cumulative_returns_lwo):
+#     # ensure datetime-like x
+#     x1 = getattr(cumulative_returns_sample.index, "to_timestamp",
+#                  lambda: cumulative_returns_sample.index)()
+#     x2 = getattr(cumulative_returns_lwo.index, "to_timestamp",
+#                  lambda: cumulative_returns_lwo.index)()
+
+#     fig, ax = plt.subplots(figsize=(10, 6))
+
+#     ax.plot(x1, cumulative_returns_sample.values,
+#             label='Cumulative Returns (Sample)')
+#     ax.plot(x2, cumulative_returns_lwo.values,
+#             label='Cumulative Returns (LWO)')
+
+#     ax.set_xlabel('Month')
+#     ax.set_ylabel('Cumulative Returns')
+#     ax.set_title('Cumulative Returns Over Time')
+#     ax.legend()
+#     ax.grid(True)
+
+#     locator = mdates.AutoDateLocator()
+#     formatter = mdates.ConciseDateFormatter(locator)
+#     ax.xaxis.set_major_locator(locator)
+#     ax.xaxis.set_major_formatter(formatter)
+#     fig.autofmt_xdate()  # tilt labels if crowded
+#     plt.show()
+
+
+# def turnover_plot(turnover_sample, turnover_lwo):
+#     # ensure datetime index (works for DatetimeIndex or PeriodIndex)
+#     x1 = getattr(turnover_sample.index, "to_timestamp",
+#                  lambda: turnover_sample.index)()
+#     x2 = getattr(turnover_lwo.index, "to_timestamp",
+#                  lambda: turnover_lwo.index)()
+
+#     fig, ax = plt.subplots(figsize=(10, 6))
+
+#     # plot using index dates directly
+#     ax.plot(x1, turnover_sample.values, label='Portfolio Turnover (Sample)')
+#     ax.plot(x2, turnover_lwo.values, label='Portfolio Turnover (LWO)')
+
+#     ax.set_xlabel('Date')
+#     ax.set_ylabel('Turnover')
+#     ax.set_title('Portfolio Turnover Over Time')
+#     ax.legend()
+#     ax.grid(True)
+
+#     # show only dates on x-axis, nicely formatted
+#     locator = mdates.AutoDateLocator()
+#     formatter = mdates.ConciseDateFormatter(locator)
+#     ax.xaxis.set_major_locator(locator)
+#     ax.xaxis.set_major_formatter(formatter)
+#     fig.autofmt_xdate()  # tilt labels if crowded
+
+#     plt.show()

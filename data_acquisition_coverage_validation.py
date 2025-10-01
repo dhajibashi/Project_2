@@ -4,6 +4,11 @@ from datetime import datetime as dt
 import wrds
 from pandas.tseries.offsets import MonthEnd
 
+# add turnover and weight stability functions
+# add plotting functions
+# META ticker change to META in 2022 so we should not pick old FB permno?
+
+
 # Data Acquisition and Coverage Validation
 # Connect to the WRDS database to retrieve monthly return data for a user-defined set of stock
 # tickers.
@@ -20,7 +25,7 @@ def data_acquisition():
 
     # Get user inputs
     tickers = ticker_input()
-    start_date_eval, months = date_input()
+    start_date_eval, look_back_period = date_input()
     max_missing = missing_months_input()
     all_data = pd.DataFrame()
 
@@ -49,7 +54,7 @@ def data_acquisition():
     max_weight, min_weight = weight_constraint_input()
 
     # Ask the user for the rolling window size (in months)
-    window_size = window_size_input()
+    # window_size = window_size_input()
 
     # Ask the user for the annual risk-free rate (as a decimal)
     # risk_free_rate = risk_free_rate_input()
@@ -64,8 +69,8 @@ def data_acquisition():
     # print(window_size)
     # print(risk_free_rate_series)
 
-    return all_data, valid_tickers, start_date_eval, months, \
-        max_weight, min_weight, window_size, risk_free_rate_series
+    return all_data, valid_tickers, start_date_eval, look_back_period, \
+        max_weight, min_weight, risk_free_rate_series
 
 
 def db_connect():
@@ -104,7 +109,7 @@ def date_input():
     while True:
         try:
             start_str = input("Enter the start date (YYYY-MM-DD): ").strip()
-            months_str = input("Enter the number of months for the analysis: ").strip()
+            months_str = input("Enter the number of months for the look back period: ").strip()
 
             # strict date parsing (won't accept "0")
             start_date = dt.strptime(start_str, "%Y-%m-%d")
@@ -233,61 +238,6 @@ def pick_permno_for_ticker(db, ticker: str, start_date: pd.Timestamp, max_missin
             print(df1)
         
     return None
-
-
-    # if mask_full.any():
-    #     if len(df[mask_full]) == 1:
-    #         return int(df.loc[mask_full, 'permno'].iloc[0]), df.loc[mask_full, 'nameendt'].iloc[0]
-    #     else:
-    #         df = df[mask_full]
-    #         # most current first
-    #         df = df.sort_values(by='nameendt', ascending=False)
-    #         # If still multiple, pick the one which is most current, i.e. with the latest nameendt
-    #         print('Multiple candidates found. Picking the most current one.')
-    #         print('Picked PERMNO:', df.iloc[0]['permno'])
-    #         print('Candidates were:')
-    #         print(df)
-    #         return int(df.iloc[0]['permno']), df.iloc[0]['nameendt']
-
-    # # 2) Missing months before the window (namedt > start_date)
-    # after_start = df['namedt'] > start_date
-    # months_before = np.where(
-    #     after_start,
-    #     (df['namedt'].dt.year - start_date.year) * 12
-    #     + (df['namedt'].dt.month - start_date.month)
-    #     # ceil if partial month
-    #     + (df['namedt'].dt.day > start_date.day).astype(int),
-    #     0
-    # )
-
-    # # 3) Missing months after the window (nameendt < end_date)
-    # before_end = df['nameendt'] < end_date
-    # months_after = np.where(
-    #     before_end,
-    #     (end_date.year - df['nameendt'].dt.year) * 12
-    #     + (end_date.month - df['nameendt'].dt.month)
-    #     # ceil if partial month
-    #     + (end_date.day > df['nameendt'].dt.day).astype(int),
-    #     0
-    # )
-
-    # total_missing_months = months_before + months_after
-
-    # mask_tol = total_missing_months <= int(max_missing)
-    # if mask_tol.any():
-    #     if len(df[mask_tol]) == 1:
-    #         return int(df.loc[mask_tol, 'permno'].iloc[0])
-    #     else:
-    #         # choose the row with the smallest total missing months (best match)
-    #         idx = pd.Series(total_missing_months, index=df.index)[
-    #             mask_tol].idxmin()
-    #         print(
-    #             'Multiple candidates found. Picking PERMNO with the smallest total missing months.')
-    #         print('Picked PERMNO:', df.loc[idx, 'permno'])
-    #         print('Candidates were:')
-    #         print(df[mask_tol])
-    #         return int(df.loc[idx, 'permno']), df.loc[idx, 'nameendt']
-
 
 
 def collapse_name_ranges(df: pd.DataFrame) -> pd.DataFrame:
