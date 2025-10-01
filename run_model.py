@@ -11,10 +11,10 @@
 # add equal weight, value weight benchmark
 # subtract risk free rate from returns to get excess returns for the df_full
 # just subtract risk free rate after calculating returns
-
+from IPython.display import display
 from data_acquisition_coverage_validation import data_acquisition, get_crsp_monthly_panel
 from minimum_variance_optimization import returns_to_excess, backtest_minvar, summarize_performance, \
-    compute_turnover, compute_weight_stability, make_all_charts, show_summary_tables
+    compute_turnover, compute_weight_stability, make_all_charts, show_summary_tables, build_topn_indexes
 
 
 
@@ -26,7 +26,14 @@ def main():
     # print("Data acquisition complete.")
     # print(tickers)
     # print(df)
-    print(df_full)
+    # print(df_full)
+
+    # Build top-N indexes
+    # print(df_full.head())
+
+    topn_weights_df, topn_returns_df = build_topn_indexes(df_full, look_back_period)
+    # display(topn_weights_df.head())
+    # display(topn_returns_df.head())
 
     # Sort the columns alphabetically for easier comparison
     raw_returns_wide = raw_returns_wide.reindex(sorted(raw_returns_wide.columns), axis=1)
@@ -36,12 +43,18 @@ def main():
     perf_df, weights_df = backtest_minvar(raw_returns_wide, excess_returns_wide, \
                                           look_back_period, min_weight, max_weight)
 
+    display(perf_df.head())
+    # display(perf_df.tail())
+
+    display(weights_df.head())
+    # display(weights_df.tail())
+
     monthly_rf = risk_free_rate_series.mean()
 
     summary_df = summarize_performance(perf_df)
 
     print("\nSummary statistics for Minimum Variance Portfolio:")
-    print(summary_df)
+    display(summary_df)
 
     turnover_df = compute_turnover(weights_df)
     weights_stability_df = compute_weight_stability(weights_df)

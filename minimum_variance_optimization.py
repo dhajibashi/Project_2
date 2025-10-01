@@ -56,7 +56,7 @@ def ledoit_wolf_covariance(ret_window):
     return lw.covariance_
 
 
-def gmv_weights(cov_matrix, lower_bound = None, upper_bound = None):
+def gmv_weights(cov_matrix, lower_bound=None, upper_bound=None):
     n = cov_matrix.shape[0]
     w = cp.Variable(n)
     objective = cp.Minimize(cp.quad_form(w, cov_matrix))
@@ -68,18 +68,19 @@ def gmv_weights(cov_matrix, lower_bound = None, upper_bound = None):
     if lower_bound is not None:
         constraints.append(w >= lower_bound)
     prob = cp.Problem(objective, constraints)
-    prob.solve(solver = cp.OSQP, verbose = False)
+    prob.solve(solver=cp.OSQP, verbose=False)
     return np.array(w.value).ravel()
 
 
-def backtest_minvar(raw_returns_wide, excess_returns_wide, window_months = 36, \
-                    lower_bound = None, upper_bound = None):
+def backtest_minvar(raw_returns_wide, excess_returns_wide, window_months=36,
+                    lower_bound=None, upper_bound=None):
     dates = excess_returns_wide.index
     tickers = list(excess_returns_wide.columns)
     perf_rows, weight_rows = [], []
 
     for t in range(window_months, len(dates) - 1):
-        est_window = excess_returns_wide.iloc[t - window_months : t]
+        est_window = excess_returns_wide.iloc[t - window_months: t]
+        # print(est_window.shape)
         next_raw_ret = raw_returns_wide.iloc[t + 1].values
         next_excess_ret = excess_returns_wide.iloc[t + 1].values
 
@@ -87,7 +88,7 @@ def backtest_minvar(raw_returns_wide, excess_returns_wide, window_months = 36, \
         lw_cov = ledoit_wolf_covariance(est_window)
 
         w_sample = gmv_weights(s_cov, lower_bound, upper_bound)
-        w_lw     = gmv_weights(lw_cov, lower_bound, upper_bound)
+        w_lw = gmv_weights(lw_cov, lower_bound, upper_bound)
 
         perf_rows.append({
             "date": dates[t + 1],
@@ -98,12 +99,15 @@ def backtest_minvar(raw_returns_wide, excess_returns_wide, window_months = 36, \
         })
 
         for i, tic in enumerate(tickers):
-            weight_rows.append({"date": dates[t], "method": "sample", "ticker": tic, "weight": w_sample[i]})
-            weight_rows.append({"date": dates[t], "method": "ledoit_wolf", "ticker": tic, "weight": w_lw[i]})
+            weight_rows.append(
+                {"date": dates[t], "method": "sample", "ticker": tic, "weight": w_sample[i]})
+            weight_rows.append(
+                {"date": dates[t], "method": "ledoit_wolf", "ticker": tic, "weight": w_lw[i]})
 
-    perf_df = pd.DataFrame(perf_rows).sort_values("date").reset_index(drop = True)
+    perf_df = pd.DataFrame(perf_rows).sort_values(
+        "date").reset_index(drop=True)
     perf_df["sample_cum"] = (1 + perf_df["sample_return"]).cumprod()
-    perf_df["lw_cum"]     = (1 + perf_df["lw_return"]).cumprod()
+    perf_df["lw_cum"] = (1 + perf_df["lw_return"]).cumprod()
     weights_df = pd.DataFrame(weight_rows)
     return perf_df, weights_df
 
@@ -111,7 +115,7 @@ def backtest_minvar(raw_returns_wide, excess_returns_wide, window_months = 36, \
 def summarize_performance(perf_df):
     # summarize performance
     summary = []
-    for label, col1, col2 in [("sample", "sample_return", "sample_excess_return"), \
+    for label, col1, col2 in [("sample", "sample_return", "sample_excess_return"),
                               ("ledoit_wolf", "lw_return", "lw_excess_return")]:
         ann_mean, ann_std = annualize_mean_std(perf_df[col1])
         sr = sharpe_ratio(perf_df[col2])
@@ -123,9 +127,9 @@ def summarize_performance(perf_df):
 
 def annualize_mean_std(monthly_returns):
     mean_monthly = monthly_returns.mean()
-    std_monthly  = monthly_returns.std(ddof = 1)
+    std_monthly = monthly_returns.std(ddof=1)
     ann_mean = (1 + mean_monthly) ** 12 - 1
-    ann_std  = std_monthly * math.sqrt(12)
+    ann_std = std_monthly * math.sqrt(12)
     return ann_mean, ann_std
 
 
@@ -150,6 +154,7 @@ def turnover_series(weight_list: pd.DataFrame):
 
     return turnover
 
+
 def compute_turnover(weights_df):
     """
     Turnover ≈ 0.5 * Σ_i |w_t,i − w_{t−1,i}|
@@ -158,7 +163,7 @@ def compute_turnover(weights_df):
     """
     out = []
     for method in weights_df['method'].unique():
-        w = (weights_df[weights_df['method']==method]
+        w = (weights_df[weights_df['method'] == method]
              .pivot(index='date', columns='ticker', values='weight')
              .sort_index())
         for i in range(1, len(w)):
@@ -174,7 +179,7 @@ def compute_turnover(weights_df):
 def compute_weight_stability(weights_df: pd.DataFrame):
     out = []
     for method in weights_df['method'].unique():
-        w = (weights_df[weights_df['method']==method]
+        w = (weights_df[weights_df['method'] == method]
              .pivot(index='date', columns='ticker', values='weight')
              .sort_index())
         for i in range(len(w)):
@@ -199,14 +204,15 @@ def drawdown_series(cum_series):
     return dd, mdd
 
 
-def rolling_sharpe_series(excess_monthly_returns, window = 12):
+def rolling_sharpe_series(excess_monthly_returns, window=12):
     """
     rolling (annualized) sharpe using excess returns (subtract monthly rf)
     """
     import math
     # monthly_rf = (1.0 + monthly_rf) ** (1.0 / 12.0) - 1.0
     # excess = monthly_returns - monthly_rf
-    rs = (excess_monthly_returns.rolling(window).mean() / excess_monthly_returns.rolling(window).std())
+    rs = (excess_monthly_returns.rolling(window).mean() /
+          excess_monthly_returns.rolling(window).std())
     return rs
 
 
@@ -216,9 +222,9 @@ def plot_cumulative(perf_df):
     expects perf_df with columns: date, sample_cum, lw_cum
     """
     import matplotlib.pyplot as plt
-    plt.figure(figsize = (9, 5))
-    plt.plot(perf_df["date"], perf_df["sample_cum"], label = "gmv (sample)")
-    plt.plot(perf_df["date"], perf_df["lw_cum"],     label = "gmv (ledoit-wolf)")
+    plt.figure(figsize=(9, 5))
+    plt.plot(perf_df["date"], perf_df["sample_cum"], label="gmv (sample)")
+    plt.plot(perf_df["date"], perf_df["lw_cum"],     label="gmv (ledoit-wolf)")
     plt.title("cumulative return (growth of $1)")
     plt.xlabel("date")
     plt.ylabel("cumulative")
@@ -235,9 +241,9 @@ def plot_drawdowns(perf_df):
     import matplotlib.pyplot as plt
     dd_s, mdd_s = drawdown_series(perf_df["sample_cum"])
     dd_l, mdd_l = drawdown_series(perf_df["lw_cum"])
-    plt.figure(figsize = (9, 4))
-    plt.plot(perf_df["date"], dd_s, label = f"sample (mdd {mdd_s:.2%})")
-    plt.plot(perf_df["date"], dd_l, label = f"ledoit-wolf (mdd {mdd_l:.2%})")
+    plt.figure(figsize=(9, 4))
+    plt.plot(perf_df["date"], dd_s, label=f"sample (mdd {mdd_s:.2%})")
+    plt.plot(perf_df["date"], dd_l, label=f"ledoit-wolf (mdd {mdd_l:.2%})")
     plt.title("drawdown")
     plt.xlabel("date")
     plt.ylabel("drawdown")
@@ -246,17 +252,19 @@ def plot_drawdowns(perf_df):
     plt.show()
 
 
-def plot_rolling_sharpe(perf_df, window = 12):
+def plot_rolling_sharpe(perf_df, window=12):
     """
     line chart: rolling sharpe for sample vs ledoit-wolf
     expects perf_df with columns: date, sample_return, lw_return
     """
     import matplotlib.pyplot as plt
-    rs_s  = rolling_sharpe_series(perf_df["sample_excess_return"], window = window)
-    rs_lw = rolling_sharpe_series(perf_df["lw_excess_return"],     window = window)
-    plt.figure(figsize = (9, 4))
-    plt.plot(perf_df["date"], rs_s,  label = "sample")
-    plt.plot(perf_df["date"], rs_lw, label = "ledoit-wolf")
+    rs_s = rolling_sharpe_series(
+        perf_df["sample_excess_return"], window=window)
+    rs_lw = rolling_sharpe_series(
+        perf_df["lw_excess_return"],     window=window)
+    plt.figure(figsize=(9, 4))
+    plt.plot(perf_df["date"], rs_s,  label="sample")
+    plt.plot(perf_df["date"], rs_lw, label="ledoit-wolf")
     plt.title(f"rolling {window}-month sharpe")
     plt.xlabel("date")
     plt.ylabel("sharpe")
@@ -323,15 +331,15 @@ def plot_weights_stability_timeseries(weights_stability_df):
     #     plt.show()
 
 
-def plot_turnover_distribution(turnover_df, bins = 30):
+def plot_turnover_distribution(turnover_df, bins=30):
     """
     histogram: turnover distribution by method
     expects turnover_df with columns: method, turnover
     """
     import matplotlib.pyplot as plt
     for method, grp in turnover_df.groupby("method"):
-        plt.figure(figsize = (7, 4))
-        plt.hist(grp["turnover"], bins = bins, alpha = 0.85)
+        plt.figure(figsize=(7, 4))
+        plt.hist(grp["turnover"], bins=bins, alpha=0.85)
         plt.title(f"turnover distribution — {method}")
         plt.xlabel("0.5 * sum |Δw| per month")
         plt.ylabel("frequency")
@@ -346,17 +354,17 @@ def plot_corr_heatmap(returns_wide):
     """
     import matplotlib.pyplot as plt
     corr = returns_wide.corr()
-    plt.figure(figsize = (7, 6))
-    im = plt.imshow(corr.values, interpolation = "nearest")
-    plt.colorbar(im, fraction = 0.046, pad = 0.04)
-    plt.xticks(range(len(corr.columns)), corr.columns, rotation = 90)
+    plt.figure(figsize=(7, 6))
+    im = plt.imshow(corr.values, interpolation="nearest")
+    plt.colorbar(im, fraction=0.046, pad=0.04)
+    plt.xticks(range(len(corr.columns)), corr.columns, rotation=90)
     plt.yticks(range(len(corr.index)), corr.index)
     plt.title("asset correlation (in-sample universe)")
     plt.tight_layout()
     plt.show()
 
 
-def show_summary_tables(summary_df, perf_df, turnover_df, tail_n = 5):
+def show_summary_tables(summary_df, perf_df, turnover_df, tail_n=5):
     """
     display key tables inline for grading
     """
@@ -370,20 +378,20 @@ def save_csvs(perf_df, weights_df, turnover_df, stability_df, summary_df):
     """
     save results to csv for reporting (kept modular so you can call or skip)
     """
-    perf_df.to_csv("oos_performance.csv", index = False)
-    weights_df.to_csv("weights_history.csv", index = False)
-    turnover_df.to_csv("turnover.csv", index = False)
-    stability_df.to_csv("stability.csv", index = False)
-    summary_df.to_csv("summary_metrics.csv", index = False)
+    perf_df.to_csv("oos_performance.csv", index=False)
+    weights_df.to_csv("weights_history.csv", index=False)
+    turnover_df.to_csv("turnover.csv", index=False)
+    stability_df.to_csv("stability.csv", index=False)
+    summary_df.to_csv("summary_metrics.csv", index=False)
 
 
-def make_all_charts(perf_df, turnover_df, weights_stability_df, returns_wide = None):
+def make_all_charts(perf_df, turnover_df, weights_stability_df, returns_wide=None):
     """
     one-click plot routine that produces all required visuals
     """
     plot_cumulative(perf_df)
     plot_drawdowns(perf_df)
-    plot_rolling_sharpe(perf_df, window = 12)
+    plot_rolling_sharpe(perf_df, window=12)
     plot_turnover_timeseries(turnover_df)
     plot_turnover_distribution(turnover_df)
     plot_weights_stability_timeseries(weights_stability_df)
@@ -391,130 +399,349 @@ def make_all_charts(perf_df, turnover_df, weights_stability_df, returns_wide = N
         plot_corr_heatmap(returns_wide)
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-def build_topn_indexes(panel: pd.DataFrame, risk_free_series) -> pd.DataFrame:
+def build_topn_indexes(panel: pd.DataFrame, look_back_period: int) -> pd.DataFrame:
     """
-    Construct Equal-, Value-, and Price-Weighted index levels (base=100).
+    Construct Equal-, Value-, and Price-Weighted index levels.
 
-    Methodology reminder:
-    - At month t, choose constituents and weights from t-1 information.
-    - Grow index from t-1 to t using ret_eff (includes delistings).
+    Methodology:
+    - At month t, use constituents & weights formed from month t-1 information.
+    - Grow the index from t-1 to t using 'ret' (should include delistings if available).
 
     Returns
     -------
-    DataFrame with three columns (EW, VW, PW) indexed by month t.
+    (weights_df, returns_df)
+      weights_df: columns ['EW Weights','VW Weights','PW Weights'], indexed by month t (from the 2nd month on);
+                  each cell is a pd.Series of permno->weight for that month.
+      returns_df: columns ['EW Returns','VW Returns','PW Returns'], indexed by month t (from the 2nd month on).
     """
 
-    # Organize by month for quick lookup
+    import pandas as pd
+    from tqdm import tqdm
+
+    # Sort & prep
     panel = panel.sort_values(['date', 'permno'])
-    months = sorted(panel['date'].unique())
+    # Unique months (respect lookback but keep at least 2 months for t-1/t pairing)
+    months_all = pd.Index(panel['date'].drop_duplicates().sort_values())
+    months = months_all[look_back_period:]
+    if len(months) < 2:
+        raise ValueError("Not enough months after look_back_period to compute indices.")
+
+    # Fast month lookup
     by_month = {d: g for d, g in panel.groupby('date')}
 
-    # Initialize index levels
-    ew_level = [100.0]
-    vw_level = [100.0]
-    pw_level = [100.0]
+    # Levels start at 1.0 at the first available month in our slice
+    ew_level = [1.0]
+    vw_level = [1.0]
+    pw_level = [1.0]
 
-    # Loop from 2nd available month; need t-1 and t
+    # Per-month weights and returns (start at t = months[1], since we need t-1)
+    ew_w_list, vw_w_list, pw_w_list = [], [], []
+    ew_ret_list, vw_ret_list, pw_ret_list = [], [], []
+
+    # Loop over t (needs t-1)
     for i in tqdm(range(1, len(months)), desc="Index Calculation Progress"):
         t_1, t = months[i-1], months[i]
-        g_t1 = by_month[t_1].dropna(subset=['mktcap', 'prc'])
-        g_t  = by_month[t]
+        g_t1 = by_month.get(t_1, pd.DataFrame()).dropna(subset=['mktcap', 'prc'], how='any')
+        g_t  = by_month.get(t,   pd.DataFrame())
 
         if g_t1.empty or g_t.empty:
-            # carry forward if missing data
+            # carry forward last level; returns = 0; weights empty
             ew_level.append(ew_level[-1])
             vw_level.append(vw_level[-1])
             pw_level.append(pw_level[-1])
+
+            ew_w_list.append(pd.Series(dtype=float))
+            vw_w_list.append(pd.Series(dtype=float))
+            pw_w_list.append(pd.Series(dtype=float))
+
+            ew_ret_list.append(0.0)
+            vw_ret_list.append(0.0)
+            pw_ret_list.append(0.0)
             continue
 
-        # Top-N by market cap at t-1
+        # Choose universe by mktcap at t-1 (Top-N if you want: .head(N))
         chosen = g_t1.sort_values('mktcap', ascending=False).set_index('permno')
 
-        # Ensure we have returns at t for the chosen PERMNOs
+        # Effective returns at t for chosen names (ensure alignment & numeric dtype)
         g_t = g_t.set_index('permno')
-        # Find intersection of chosen stocks and those with returns at t
         common = chosen.index.intersection(g_t.index)
-        # If no common stocks, carry forward previous index levels
         if len(common) == 0:
             ew_level.append(ew_level[-1])
             vw_level.append(vw_level[-1])
             pw_level.append(pw_level[-1])
+
+            ew_w_list.append(pd.Series(dtype=float))
+            vw_w_list.append(pd.Series(dtype=float))
+            pw_w_list.append(pd.Series(dtype=float))
+
+            ew_ret_list.append(0.0)
+            vw_ret_list.append(0.0)
+            pw_ret_list.append(0.0)
             continue
 
-        # Effective returns at t for the chosen stocks
-        r_t = g_t.loc[common, 'ret'].astype(float)
+        r_t = pd.to_numeric(g_t.loc[common, 'ret'], errors='coerce')
 
-        # Equal-Weighted: average of gross returns
-        r_t_ew = r_t.dropna()
-        ew_gross = (1.0 + r_t_ew).mean() if not r_t_ew.empty else 1.0
-
-        # Value-Weighted: weights from t-1 market cap
-        w_vw = chosen.loc[common, 'mktcap'].astype(float)
-        mask_vw = r_t.notna()
-        # Restrict to stocks with non-missing returns at t
-        w_vw = w_vw.loc[mask_vw]
-        r_vw = r_t.loc[mask_vw]
-        if r_vw.empty or w_vw.sum() <= 0:
-            vw_gross = 1.0
+        # ----- Equal-Weighted -----
+        r_ew = r_t.dropna()
+        if r_ew.empty:
+            ew_gross = 1.0
+            ew_weights = pd.Series(dtype=float)
         else:
+            ew_weights = pd.Series(1.0 / len(r_ew), index=r_ew.index)
+            ew_gross = (1.0 + r_ew).mean()
+
+        # ----- Value-Weighted (mktcap at t-1) -----
+        w_vw_raw = pd.to_numeric(chosen.loc[common, 'mktcap'], errors='coerce')
+        mask_vw = r_t.notna() & w_vw_raw.notna() & (w_vw_raw > 0)
+        r_vw = r_t.loc[mask_vw]
+        if r_vw.empty:
+            vw_gross = 1.0
+            vw_weights = pd.Series(dtype=float)
+        else:
+            w_vw = w_vw_raw.loc[mask_vw]
             w_vw = w_vw / w_vw.sum()
+            vw_weights = w_vw.copy()
             vw_gross = ((1.0 + r_vw) * w_vw).sum()
 
-        # Price-Weighted: weights from t-1 price
-        w_pw = chosen.loc[common, 'prc'].astype(float)
-        mask_pw = r_t.notna()
-        # Restrict to stocks with non-missing returns at t
-        w_pw = w_pw.loc[mask_pw]
+        # ----- Price-Weighted (price at t-1) -----
+        w_pw_raw = pd.to_numeric(chosen.loc[common, 'prc'], errors='coerce').abs()
+        mask_pw = r_t.notna() & w_pw_raw.notna() & (w_pw_raw > 0)
         r_pw = r_t.loc[mask_pw]
-        if r_pw.empty or w_pw.sum() <= 0:
+        if r_pw.empty:
             pw_gross = 1.0
+            pw_weights = pd.Series(dtype=float)
         else:
+            w_pw = w_pw_raw.loc[mask_pw]
             w_pw = w_pw / w_pw.sum()
+            pw_weights = w_pw.copy()
             pw_gross = ((1.0 + r_pw) * w_pw).sum()
 
-
-        # if (i == len(months) - 1) :
-            # sort descending, keep the index
-            # print(sorted(w_vw.items(), key=lambda x: x[1], reverse=True))
-            # print(sorted(w_pw.items(), key=lambda x: x[1], reverse=True))
-
-        # Compound index levels
+        # Update levels
         ew_level.append(ew_level[-1] * float(ew_gross))
         vw_level.append(vw_level[-1] * float(vw_gross))
         pw_level.append(pw_level[-1] * float(pw_gross))
 
-    # Assemble output DataFrame
-    # Convert to tidy DataFrame indexed by month t
-    idx_months = pd.to_datetime(months[:])
-    ew = pd.Series(ew_level[:], index=idx_months, name='Equal-Weighted')
-    vw = pd.Series(vw_level[:], index=idx_months, name='Value-Weighted')
-    pw = pd.Series(pw_level[:], index=idx_months, name='Price-Weighted')
+        # Store weights (at month t) and returns (gross-1)
+        ew_w_list.append(ew_weights)
+        vw_w_list.append(vw_weights)
+        pw_w_list.append(pw_weights)
 
-    # Combine all index levels into a single DataFrame
-    return pd.concat([ew, vw, pw], axis=1)
+        ew_ret_list.append(float(ew_gross - 1.0))
+        vw_ret_list.append(float(vw_gross - 1.0))
+        pw_ret_list.append(float(pw_gross - 1.0))
+
+    # -------- Assemble outputs --------
+    idx_months = pd.to_datetime(months[:-1])           # all months incl. the first (level=1.0)
+    idx_rt     = pd.to_datetime(months[1:])       # returns/weights start at second month
+
+    # Weights: store the per-month Series in an object-dtype Series
+    ew_weights_s = pd.Series(ew_w_list, index=idx_months, name='EW Weights')
+    vw_weights_s = pd.Series(vw_w_list, index=idx_months, name='VW Weights')
+    pw_weights_s = pd.Series(pw_w_list, index=idx_months, name='PW Weights')
+    weights_df   = pd.concat([ew_weights_s, vw_weights_s, pw_weights_s], axis=1)
+
+    # Returns
+    ew_returns_s = pd.Series(ew_ret_list, index=idx_rt, name='EW Returns')
+    vw_returns_s = pd.Series(vw_ret_list, index=idx_rt, name='VW Returns')
+    pw_returns_s = pd.Series(pw_ret_list, index=idx_rt, name='PW Returns')
+    returns_df   = pd.concat([ew_returns_s, vw_returns_s, pw_returns_s], axis=1)
+
+    returns_df = weights_to_long(weights_df, panel, map_from_t_minus_1=True)
+    # # (Optional) Levels, if you want them:
+    # levels_df = pd.DataFrame({
+    #     'EW': ew_level,
+    #     'VW': vw_level,
+    #     'PW': pw_level,
+    # }, index=idx_months)
+
+    # print(levels_df.tail())
+
+    return weights_df, returns_df  # or (levels_df, weights_df, returns_df)
 
 
+def weights_to_long(weights_df: pd.DataFrame, panel: pd.DataFrame,
+                    map_from_t_minus_1: bool = True) -> pd.DataFrame:
+    """
+    Convert the 'weights_df' returned by build_topn_indexes into long/tidy format:
+
+        date       method   ticker   weight
+
+    Assumptions
+    -----------
+    - weights_df index = month-end Timestamp for t (starts at months[1:])
+    - Each cell in weights_df is a pd.Series indexed by PERMNO with weight values
+    - 'panel' has at least ['date','permno','ticker'] (one row per stock per month)
+    - If tickers change over time, mapping can be taken from t-1 (default) or t
+    """
+    import pandas as pd
+    from pandas.tseries.offsets import MonthEnd
+
+    # Keep only what's needed and make a month→(permno→ticker) map
+    if not {'date','permno','ticker'}.issubset(panel.columns):
+        raise ValueError("`panel` must contain columns: 'date', 'permno', 'ticker'.")
+
+    p = panel[['date', 'permno', 'ticker']].drop_duplicates()
+    month_map = {d: g.set_index('permno')['ticker'] for d, g in p.groupby('date')}
+
+    rows = []
+    for dt, row in weights_df.iterrows():
+        # Choose which month to use for the permno→ticker mapping
+        key = (dt - MonthEnd(1)) if map_from_t_minus_1 else dt
+        tickmap = month_map.get(key, month_map.get(dt, pd.Series(dtype=object)))
+
+        for method_name, s in row.items():
+            if s is None or len(s) == 0:
+                continue
+            # Ensure it's a Series with permno index
+            s = pd.Series(s, copy=False)
+            df = s.rename('weight').reset_index().rename(columns={'index': 'permno'})
+            # Map ticker; if missing, fall back to permno as string
+            df['ticker'] = df['permno'].map(tickmap).fillna(df['permno'].astype(str))
+            df['date'] = pd.to_datetime(dt)
+            # Clean method label (e.g., "EW Weights" -> "ew")
+            df['method'] = (str(method_name)
+                            .replace(' Weights', '')
+                            .replace('_weights', '')
+                            .strip()
+                            .lower())
+            rows.append(df[['date', 'method', 'ticker', 'weight']])
+
+    out = (pd.concat(rows, ignore_index=True)
+             .sort_values(['date', 'method', 'ticker'])
+             .reset_index(drop=True))
+    return out
 
 
+# def build_topn_indexes(panel: pd.DataFrame, look_back_period: int) -> pd.DataFrame:
+#     """
+#     Construct Equal-, Value-, and Price-Weighted index levels.
 
+#     Methodology reminder:
+#     - At month t, choose constituents and weights from t-1 information.
+#     - Grow index from t-1 to t using ret_eff (includes delistings).
 
+#     Returns
+#     -------
+#     DataFrame with three columns (EW, VW, PW) indexed by month t.
+#     """
 
+#     # Organize by month for quick lookup
+#     panel = panel.sort_values(['date', 'permno'])
+#     months = sorted(panel['date'].unique())
+#     months = months[look_back_period:] 
+#     num_stocks = panel['permno'].nunique()
 
+#     by_month = {d: g for d, g in panel.groupby('date')}
 
+#     # Initialize index levels
+#     ew_level = [1.0]
+#     vw_level = [1.0]
+#     pw_level = [1.0]
 
+#     ew_weights = [1/num_stocks] * num_stocks  # fixed equal weights
+#     vw_weights = []
+#     pw_weights = []
+
+#     ew_returns = []
+#     vw_returns = []
+#     pw_returns = []
+
+#     # Loop from 2nd available month; need t-1 and t
+#     for i in tqdm(range(1, len(months)), desc="Index Calculation Progress"):
+#         t_1, t = months[i-1], months[i]
+#         g_t1 = by_month[t_1].dropna(subset=['mktcap', 'prc'])
+#         g_t = by_month[t]
+
+#         if g_t1.empty or g_t.empty:
+#             # carry forward if missing data
+#             ew_level.append(ew_level[-1])
+#             vw_level.append(vw_level[-1])
+#             pw_level.append(pw_level[-1])
+#             continue
+
+#         # Top-N by market cap at t-1
+#         chosen = g_t1.sort_values(
+#             'mktcap', ascending=False).set_index('permno')
+
+#         # Ensure we have returns at t for the chosen PERMNOs
+#         g_t = g_t.set_index('permno')
+#         # Find intersection of chosen stocks and those with returns at t
+#         common = chosen.index.intersection(g_t.index)
+#         # If no common stocks, carry forward previous index levels
+#         if len(common) == 0:
+#             ew_level.append(ew_level[-1])
+#             vw_level.append(vw_level[-1])
+#             pw_level.append(pw_level[-1])
+#             continue
+
+#         # Effective returns at t for the chosen stocks
+#         r_t = g_t.loc[common, 'ret'].astype(float)
+
+#         # Equal-Weighted: average of gross returns
+#         r_t_ew = r_t.dropna()
+#         ew_gross = (1.0 + r_t_ew).mean() if not r_t_ew.empty else 1.0
+
+#         # Value-Weighted: weights from t-1 market cap
+#         w_vw = chosen.loc[common, 'mktcap'].astype(float)
+#         mask_vw = r_t.notna()
+#         # Restrict to stocks with non-missing returns at t
+#         w_vw = w_vw.loc[mask_vw]
+#         r_vw = r_t.loc[mask_vw]
+#         if r_vw.empty or w_vw.sum() <= 0:
+#             vw_gross = 1.0
+#         else:
+#             w_vw = w_vw / w_vw.sum()
+#             vw_gross = ((1.0 + r_vw) * w_vw).sum()
+#         vw_weights.append(w_vw)
+
+#         # Price-Weighted: weights from t-1 price
+#         w_pw = chosen.loc[common, 'prc'].astype(float)
+#         mask_pw = r_t.notna()
+#         # Restrict to stocks with non-missing returns at t
+#         w_pw = w_pw.loc[mask_pw]
+#         r_pw = r_t.loc[mask_pw]
+#         if r_pw.empty or w_pw.sum() <= 0:
+#             pw_gross = 1.0
+#         else:
+#             w_pw = w_pw / w_pw.sum()
+#             pw_gross = ((1.0 + r_pw) * w_pw).sum()
+#         pw_weights.append(w_pw)
+
+#         # if (i == len(months) - 1) :
+#             # sort descending, keep the index
+#             # print(sorted(w_vw.items(), key=lambda x: x[1], reverse=True))
+#             # print(sorted(w_pw.items(), key=lambda x: x[1], reverse=True))
+
+#         # Compound index levels
+#         ew_level.append(ew_level[-1] * float(ew_gross))
+#         vw_level.append(vw_level[-1] * float(vw_gross))
+#         pw_level.append(pw_level[-1] * float(pw_gross))
+
+#         ew_returns.append(float(ew_gross))
+#         vw_returns.append(float(vw_gross))
+#         pw_returns.append(float(pw_gross))
+
+#     # Assemble output DataFrame
+#     # Convert to tidy DataFrame indexed by month t
+#     idx_months = pd.to_datetime(months[:])
+#     # ew = pd.Series(ew_level[:], index=idx_months, name='Equal-Weighted')
+#     # vw = pd.Series(vw_level[:], index=idx_months, name='Value-Weighted')
+#     # pw = pd.Series(pw_level[:], index=idx_months, name='Price-Weighted')
+
+#     ew_weights = pd.Series(ew_weights, index=idx_months[1:], name='EW Weights')
+#     vw_weights = pd.Series(vw_weights, index=idx_months[1:], name='VW Weights')
+#     pw_weights = pd.Series(pw_weights, index=idx_months[1:], name='PW Weights')
+#     weights_df = pd.concat([ew_weights, vw_weights, pw_weights], axis=1)
+
+#     ew_returns = pd.Series(ew_returns, index=idx_months[:], name='EW Returns')
+#     vw_returns = pd.Series(vw_returns, index=idx_months[:], name='VW Returns')
+#     pw_returns = pd.Series(pw_returns, index=idx_months[:], name='PW Returns')
+#     returns_df = pd.concat([ew_returns, vw_returns, pw_returns], axis=1)
+
+#     # Combine all index levels into a single DataFrame
+#     # return pd.concat([ew, vw, pw], axis=1)
+
+#     return weights_df, returns_df
 
 
 # def summary_statistics(weight_list: pd.DataFrame,
@@ -561,7 +788,6 @@ def build_topn_indexes(panel: pd.DataFrame, risk_free_series) -> pd.DataFrame:
 #             sharpe_ratio = np.nan
 #         else:
 #             sharpe_ratio = (excess.mean()) / (excess.std(ddof=1))
-
 
 
 #     return (cumulative_returns,

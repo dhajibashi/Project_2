@@ -32,16 +32,18 @@ def data_acquisition():
 
     shrcd_list = [10, 11]  # Common shares
 
-    # Since the WRDS CRSP database is updated at the end of each year, 
+    # Since the WRDS CRSP database is updated at the end of each year,
     # set the end of df to 12/31 of last year from today's date
     # today = pd.Timestamp.today()
     # end_date_df = pd.Timestamp(year=today.year - 1, month=12, day=31)
 
     # Get valid PERMNOs for the tickers
-    permno_list, valid_tickers = get_active_permnos(db, tickers, start_date_eval, max_missing, shrcd_list)
+    permno_list, valid_tickers = get_active_permnos(
+        db, tickers, start_date_eval, max_missing, shrcd_list)
 
     # Get returns data
-    all_data = get_returns(db, permno_list, start_date_eval.strftime('%Y-%m-%d'))
+    all_data = get_returns(
+        db, permno_list, start_date_eval.strftime('%Y-%m-%d'))
     # Get delisting returns data
     # delisting_data = get_delistings(db, permno_list, start_date_eval.strftime('%Y-%m-%d'),
     #                                 end_date_eval.strftime('%Y-%m-%d'))
@@ -61,9 +63,11 @@ def data_acquisition():
     # risk_free_rate = risk_free_rate_input()
     end_date_eval = all_data.index.max()
     # print("End date for evaluation (last available data):", end_date_eval)
-    risk_free_rate_series = get_risk_free_rate_series(db, start_date_eval, end_date_eval)
+    risk_free_rate_series = get_risk_free_rate_series(
+        db, start_date_eval, end_date_eval)
 
-    df_full = get_crsp_monthly_panel(db, permno_list, start_date_eval.strftime('%Y-%m-%d'))
+    df_full = get_crsp_monthly_panel(
+        db, permno_list, start_date_eval.strftime('%Y-%m-%d'))
     # print(all_data)
     # print(valid_tickers)
     # print(start_date_eval, months)
@@ -71,7 +75,7 @@ def data_acquisition():
     # print(window_size)
     # print(risk_free_rate_series)
 
-    return all_data, valid_tickers, permno_list,start_date_eval, look_back_period, \
+    return all_data, valid_tickers, permno_list, start_date_eval, look_back_period, \
         max_weight, min_weight, risk_free_rate_series, df_full
 
 
@@ -94,7 +98,8 @@ def ticker_input():
         tickers = input(
             "Enter a list of stock tickers (comma separated): ").split(',')
         tickers = [ticker.strip().upper() for ticker in tickers]
-        tickers = [ticker.replace('"', '').replace("'", '') for ticker in tickers]
+        tickers = [ticker.replace('"', '').replace("'", '')
+                   for ticker in tickers]
         if not tickers or tickers == ['']:
             print("Invalid input. Please enter at least one ticker.")
         else:
@@ -111,7 +116,8 @@ def date_input():
     while True:
         try:
             start_str = input("Enter the start date (YYYY-MM-DD): ").strip()
-            months_str = input("Enter the number of months for the look back period: ").strip()
+            months_str = input(
+                "Enter the number of months for the look back period: ").strip()
 
             # strict date parsing (won't accept "0")
             start_date = dt.strptime(start_str, "%Y-%m-%d")
@@ -121,13 +127,15 @@ def date_input():
                 print("Number of months must be a positive integer. Please try again.")
                 continue
 
-            end_date = pd.Timestamp(start_date) + pd.DateOffset(months=num_months-1)
+            end_date = pd.Timestamp(start_date) + \
+                pd.DateOffset(months=num_months-1)
             print(
                 f"Date range: {pd.Timestamp(start_date).date()} to {end_date.date()}")
             return pd.Timestamp(start_date), num_months
 
         except ValueError:
-            print("Invalid input. Use YYYY-MM-DD for the date and a positive integer for months.")
+            print(
+                "Invalid input. Use YYYY-MM-DD for the date and a positive integer for months.")
 
 
 def missing_months_input():
@@ -156,12 +164,14 @@ def get_active_permnos(db, tickers: list, start_date: pd.Timestamp, max_missing:
 
     for ticker in tickers:
         # If there is no valid PERMNO found, ask the user for a replacement ticker
-        permno = pick_permno_for_ticker(db, ticker, start_date, max_missing, shrcd_list)
+        permno = pick_permno_for_ticker(
+            db, ticker, start_date, max_missing, shrcd_list)
         while permno is None:
             print(f"No valid PERMNO found for ticker {ticker}.")
             ticker = input(
                 "Please enter a replacement ticker: ").strip().upper()
-            permno = pick_permno_for_ticker(db, ticker, start_date, max_missing, shrcd_list)
+            permno = pick_permno_for_ticker(
+                db, ticker, start_date, max_missing, shrcd_list)
         permno_list.append(permno)
         valid_tickers.append(ticker)
         # date_of_delisting.append(delisting_date)
@@ -173,7 +183,7 @@ def get_active_permnos(db, tickers: list, start_date: pd.Timestamp, max_missing:
     return permno_list, valid_tickers
 
 
-def pick_permno_for_ticker(db, ticker: str, start_date: pd.Timestamp, max_missing: int, \
+def pick_permno_for_ticker(db, ticker: str, start_date: pd.Timestamp, max_missing: int,
                            shrcd_list: list) -> int | None:
     """
     Given a ticker and a date, pick the most appropriate PERMNO.
@@ -213,9 +223,10 @@ def pick_permno_for_ticker(db, ticker: str, start_date: pd.Timestamp, max_missin
 
     if df.empty:
         # Nothing in the allowed share codes
-        print(f"Ticker {ticker} has no active PERMNOs in common share classes as of {start_date.date()}.")
+        print(
+            f"Ticker {ticker} has no active PERMNOs in common share classes as of {start_date.date()}.")
         return None
-    
+
     df = collapse_name_ranges(df)
 
     # end_date = pd.Timestamp.today()
@@ -223,7 +234,8 @@ def pick_permno_for_ticker(db, ticker: str, start_date: pd.Timestamp, max_missin
     # mask_full = (df['namedt'] <= start_date) & (df['nameendt'] >= end_date)
     active = df[df['namedt'] <= start_date]
     if active.empty:
-        print(f"Ticker {ticker} has no active PERMNOs as of {start_date.date()}.")
+        print(
+            f"Ticker {ticker} has no active PERMNOs as of {start_date.date()}.")
         return None
 
     # iterate rows so we can grab shrcd for the same permno
@@ -231,14 +243,15 @@ def pick_permno_for_ticker(db, ticker: str, start_date: pd.Timestamp, max_missin
         permno = int(row['permno'])
 
         df1 = get_delistings(db, [permno], start_date.strftime('%Y-%m-%d'))
-        df2 = get_returns(db, [permno], start_date.strftime('%Y-%m-%d'), max_missing)
+        df2 = get_returns(db, [permno], start_date.strftime(
+            '%Y-%m-%d'), max_missing)
 
         if df1.empty and isinstance(df2, pd.DataFrame) and not df2.empty:
             return permno
         elif not df1.empty:
             print('Delisting data found for PERMNO:', permno)
             print(df1)
-        
+
     return None
 
 
@@ -303,7 +316,7 @@ def get_returns(df_conn, permno_list: list, start: str, max_missing=None) -> pd.
     d['date'] = pd.to_datetime(d['date']) + MonthEnd(0)  # ensure month-end
     d['ret'] = pd.to_numeric(d['ret'], errors='coerce')
 
-     # Count missing per PERMNO BEFORE filling
+    # Count missing per PERMNO BEFORE filling
     if d['ret'].isna().any():
         miss_counts = d.loc[d['ret'].isna()].groupby('permno')['ret'].size()
     else:
@@ -363,7 +376,8 @@ def get_delistings(db, permno_list: list, start: str) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame(columns=['permno', 'date', 'dlret'])
 
-    df['date'] = pd.to_datetime(df['dlstdt']) + MonthEnd(0)  # align to month-end
+    df['date'] = pd.to_datetime(df['dlstdt']) + \
+        MonthEnd(0)  # align to month-end
     df['dlret'] = pd.to_numeric(df['dlret'], errors='coerce')
     df = df[['permno', 'date', 'dlret']].dropna(subset=['dlret'])
     df['permno'] = df['permno'].astype(int)
@@ -483,6 +497,7 @@ def window_size_input():
     print(f"Rolling window size: {window_size} months")
     return window_size
 
+
 def risk_free_rate_input():
     # Ask the user for the annual risk-free rate (as a decimal) with error handling
     while True:
@@ -548,7 +563,8 @@ def get_crsp_monthly_panel(db, permono_list: list, start_date: str) -> pd.DataFr
         m.ret,
         m.retx,
         n.shrcd,
-        n.exchcd
+        n.exchcd,
+        n.ticker
     FROM crsp.msf AS m
     JOIN crsp.msenames AS n
         ON m.permno = n.permno
@@ -568,17 +584,20 @@ def get_crsp_monthly_panel(db, permono_list: list, start_date: str) -> pd.DataFr
 
     # ---- Standardize dtypes and construct market cap ----
     if not df.empty:
-        df["date"]   = pd.to_datetime(df["date"])
-        df["prc"]    = pd.to_numeric(df["prc"], errors="coerce").abs()  # CRSP price may be negative (indicating a bid/ask mid)
-        df["shrout"] = pd.to_numeric(df["shrout"], errors="coerce") * 1000.0  # in thousands of shares
-        df["ret"]    = pd.to_numeric(df.get("ret", pd.Series()),   errors="coerce")
-        df["retx"]   = pd.to_numeric(df.get("retx", pd.Series()),  errors="coerce")
+        df["date"] = pd.to_datetime(df["date"]) + MonthEnd(0)  # ensure month-end
+        # CRSP price may be negative (indicating a bid/ask mid)
+        df["prc"] = pd.to_numeric(df["prc"], errors="coerce").abs()
+        df["shrout"] = pd.to_numeric(
+            df["shrout"], errors="coerce") * 1000.0  # in thousands of shares
+        df["ret"] = pd.to_numeric(
+            df.get("ret", pd.Series()),   errors="coerce")
+        df["retx"] = pd.to_numeric(
+            df.get("retx", pd.Series()),  errors="coerce")
         df["mktcap"] = df["prc"] * df["shrout"]
         # set the index of the df to dates
-        df = df.set_index('date').sort_index()
+        # df = df.set_index('date').sort_index()
 
     return df
-
 
 
 if __name__ == "__main__":
