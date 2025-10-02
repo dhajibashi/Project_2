@@ -592,7 +592,6 @@ def get_crsp_monthly_panel(db, permono_list: list, start_date: str) -> pd.DataFr
     JOIN crsp.msenames AS n
         ON m.permno = n.permno
         AND m.date BETWEEN n.namedt AND COALESCE(n.nameendt, '9999-12-31') 
-        -- A given stock (permno) can have multiple records in msenames over time: ticker changes, exchange moves, share code reclassifications, mergers.
     WHERE m.date >= '{start_date}'
         AND m.permno IN ({','.join(map(str, permono_list))})
         AND m.prc    IS NOT NULL
